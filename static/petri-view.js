@@ -543,9 +543,9 @@ class PetriView extends HTMLElement {
         });
 
         const tools = [
-            {mode:'select', label:'◉', title:'Select / Fire (default)'},
-            {mode:'add-place', label:'\u25CB', title:'Add Place'},
-            {mode:'add-transition', label:'\u25A3', title:'Add Transition'},
+            {mode:'select', label:'\u26F6', title:'Select / Fire (default)'},
+            {mode:'add-place', label:'\u20DD', title:'Add Place'},
+            {mode:'add-transition', label:'\u25A2', title:'Add Transition'},
             {mode:'add-arc', label:'\u2192', title:'Add Arc'},
             {mode:'add-token', label:'\u2022', title:'Add / Remove Tokens'},
             {mode:'delete', label:'\u{1F5D1}', title:'Delete element (nodes or arcs)'},
@@ -928,3 +928,4 @@ class PetriView extends HTMLElement {
 customElements.define('petri-view', PetriView);
 
 export { PetriView };
+
