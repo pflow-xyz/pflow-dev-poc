@@ -165,6 +165,7 @@ class PetriView extends HTMLElement {
         });
 
         this._root.addEventListener('pointerdown', (e) => {
+            if (this._mode === 'add-token') return;
             // start panning if space, middle button, or Alt/Ctrl/Meta
             const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey;
             if (isPan) {
@@ -532,7 +533,16 @@ class PetriView extends HTMLElement {
             });
 
             // drag
-            handle.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'place'));
+            handle.addEventListener('pointerdown', (ev) => {
+                if (this._mode === 'add-token') return;
+                // don't start dragging while user is in add-arc mode;
+                // allow the click to be handled by the node click handler to start/finish arcs.
+                if (this._mode === 'add-arc') {
+                    // allow click events to reach the node click handler — do not stop propagation
+                    return;
+                }
+                this._beginDrag(ev, id, 'place');
+            });
 
             this._stage.appendChild(el);
             this._nodes[id] = el;
@@ -584,7 +594,14 @@ class PetriView extends HTMLElement {
             });
 
             // drag
-            el.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'transition'));
+            el.addEventListener('pointerdown', (ev) => {
+                // when adding arcs, don't initiate move/drag on the transition element.
+                if (this._mode === 'add-arc') {
+                    // allow click events to reach the node click handler — do not stop propagation
+                    return;
+                }
+                this._beginDrag(ev, id, 'transition');
+            });
 
             this._stage.appendChild(el);
             this._nodes[id] = el;
@@ -899,6 +916,7 @@ class PetriView extends HTMLElement {
         }
         if (this._arcDraft && this._arcDraft.source) {
             const srcEl = this._nodes[this._arcDraft.source];
+            // highlight the source element of the draft so users see which node is the origin
             if (srcEl) srcEl.classList.toggle('pv-arc-src', true);
         }
     }
