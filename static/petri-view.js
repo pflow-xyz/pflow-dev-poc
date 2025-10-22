@@ -19,6 +19,11 @@ class PetriView extends HTMLElement {
         this._mode = 'select'; // select | add-place | add-transition | add-arc | add-token | delete
         this._arcDraft = null; // { source: id }
         this._menu = null;
+
+        // simulation state
+        this._simRunning = false;
+        this._prevMode = null;
+        this._menuPlayBtn = null;
     }
 
     // -------- lifecycle ------------------------------------------------------
@@ -565,6 +570,23 @@ class PetriView extends HTMLElement {
             this._menu.appendChild(btn);
         });
 
+        // Play / Stop button
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'pv-play';
+        playBtn.textContent = this._simRunning ? '⏸' : '▶';
+        playBtn.title = this._simRunning ? 'Stop simulation' : 'Start simulation';
+        Object.assign(playBtn.style, {
+            width: '44px', height: '36px', borderRadius: '6px', border: 'none',
+            background: 'linear-gradient(180deg,#fff,#f3f3f3)', cursor: 'pointer', fontSize: '16px'
+        });
+        playBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._setSimulation(!this._simRunning);
+        });
+        this._menu.appendChild(playBtn);
+        this._menuPlayBtn = playBtn;
+
         this._root.appendChild(this._menu);
 
         // click on empty root to add nodes when in add-place/add-transition mode
@@ -592,6 +614,8 @@ class PetriView extends HTMLElement {
     }
 
     _setMode(mode) {
+        // if simulation running, lock to 'select' (allowing only stopping via play button)
+        if (this._simRunning && mode !== 'select') return;
         this._mode = mode;
         // cancel any arc draft when switching away from add-arc
         if (mode !== 'add-arc' && this._arcDraft) {
@@ -677,6 +701,50 @@ class PetriView extends HTMLElement {
         if (this._arcDraft && this._arcDraft.source) {
             const srcEl = this._nodes[this._arcDraft.source];
             if (srcEl) srcEl.classList.toggle('pv-arc-src', true);
+        }
+    }
+
+    // -------- simulation control --------------------------------------------
+    _setSimulation(running) {
+        if (running === !!this._simRunning) return;
+        if (running) {
+            // start simulation: remember previous mode, switch to select and disable editing tools
+            this._prevMode = this._mode;
+            this._simRunning = true;
+            this._setMode('select');
+            if (this._menuPlayBtn) {
+                this._menuPlayBtn.textContent = '⏸';
+                this._menuPlayBtn.title = 'Stop simulation';
+            }
+            // disable edit tool buttons
+            if (this._menu) {
+                this._menu.querySelectorAll('.pv-tool').forEach(btn => {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                    btn.style.cursor = 'default';
+                });
+            }
+            this._root.classList.add('pv-simulating');
+            this.dispatchEvent(new CustomEvent('simulation-started'));
+        } else {
+            // stop simulation: restore previous mode and re-enable tools
+            this._simRunning = false;
+            if (this._menuPlayBtn) {
+                this._menuPlayBtn.textContent = '▶';
+                this._menuPlayBtn.title = 'Start simulation';
+            }
+            if (this._menu) {
+                this._menu.querySelectorAll('.pv-tool').forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '';
+                    btn.style.cursor = '';
+                });
+            }
+            this._root.classList.remove('pv-simulating');
+            // restore previous mode (or select if none)
+            this._setMode(this._prevMode || 'select');
+            this._prevMode = null;
+            this.dispatchEvent(new CustomEvent('simulation-stopped'));
         }
     }
 
