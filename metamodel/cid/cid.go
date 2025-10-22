@@ -20,7 +20,7 @@ func (c Cid) String() string {
 func toCid(data []byte) (*Cid, error) {
 	newId, err := cid2.Prefix{
 		Version:  1,
-		Codec:    0x55, // raw
+		Codec:    0x0129, // dag-json (use JSON-LD / DAG-JSON codec)
 		MhType:   multihash.SHA2_256,
 		MhLength: -1, // default length
 	}.Sum(data)

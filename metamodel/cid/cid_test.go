@@ -6,14 +6,14 @@ import (
 
 func TestCidPrefix(t *testing.T) {
 	out := ToCid([]byte("hello"))
-	if out.String() != "zb2rhZfjRh2FHHB2RkHVEvL2vJnCTcu7kwRqgVsf9gpkLgteo" {
+	if out.String() != "z4EBG9j39DX8pJ5CjucFtnPRYvvKgDPPZ522KvJGCLJ9cB7AFwh" {
 		t.Fatalf("mismatch %v", out.String())
 	}
 }
 
 func TestNewCid(t *testing.T) {
 	out := NewCid([]byte("hello"))
-	if out.String() != "zb2rhZfjRh2FHHB2RkHVEvL2vJnCTcu7kwRqgVsf9gpkLgteo" {
+	if out.String() != "z4EBG9j39DX8pJ5CjucFtnPRYvvKgDPPZ522KvJGCLJ9cB7AFwh" {
 		t.Fatalf("mismatch %v", out.String())
 	}
 }

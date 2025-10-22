@@ -6,57 +6,30 @@ build of app.pflow.dev - no wallet connector - minimal build/viewer
 
 WIP
 ---
-- [ ] refactor to use canvas elements
-- [ ] refine SVG + editor commands
-- [ ] rebuild w/ 1st class json+ld support
-- [ ] all edited object add permalinks
-- [ ] add - save permalink button
+- [ ] NEW-STACK: Build viewer -> HTML -> Json+LD -> Canvas (interactive view) + SVG (static export)
+- [ ] fix issue added after the new arc preview - onclicks to fire transitions or make edits are broken
+- [ ] add - save permalink button + auto-update URL on edits
+- [ ] add id element w/ some consistent hash / IPFS signature
 
+DONE
+----
 
 
 BACKLOG
 -------
-- [ ] gno.land version needs multi-token support
-- [ ] url-visualizer on gno.land to build out multi-step actions
-- [ ] fix token colors - changing colors in the editor should change the diagram
-- [ ] fix capacity set to 0 does not remove capacity limitation
-- [ ] test that permalink gets updated on edit
-- [ ] minURL - add support for multi-token colors
-- [ ] fix docker build to work w/ tests in place
-
+- [ ] complete upgrades for colored tokens
+- [ ] check backward-compatible support for URL formats - adopt a toURL / fromURL pattern
+- [ ] test server side rendering of svg images embeddable in markdown
+- [ ] add json editor back in - possibly as a toggle view
+- [ ] add @id property derived from IPFS hash of model (for verifiable models)
+- [ ] implement basic wallet connection for signing models
+- [ ] add export to solidity smart contract
+- [ ] add export to julia code
  
-  DONE
-----
-- [x] fix editor interactions - issue selecting text and last few lines of code
-- [x] in this project use ./static/form.html and ./static/model.svg as template
-- [x] Review roadmap.md - consider deploying gnoland-only version first
-
 ICEBOX
 ------
-- [ ] fix failing tests
-- [ ] complete upgrades for colored tokens
-- [ ] check backward-compatible support for URL formats
-- [ ] consider adopting https://github.com/microsoft/monaco-editor/tree/main for multi-language support
-- [ ] review the plan to implement custom lexer/parser for go, julia, solidity, python
-```
-/?foo=1&bar=1&baz=1
-````
-- [ ] build parser/lexer to interpret actions from URL
-      where foo, bar, baz are actions and 1 is number of firings
- 
-- [ ] consider how to deploy indexing on AtomOne w/ https://github.com/allinbits/temporalib
-
+- [ ] implement pan and zoom for canvas
+- [ ] add new sqlite storage for server (and/or postgres?)
 - [ ] test svg image generation on dark mode
-- [ ] setup svg badges - does it need? Access-Control-Allow-Origin: *
-
- 
-- [ ] Use SVG for UI elements and Canvas for complex rendering
-- [ ] backport to pflow.xyz - consider how to store legacy petri-net data to make it compatible with minURL
-- [ ] add new sqlite storage for server
-- 
-- [ ] NEW-STACK: Build viewer -> HTML -> Object -> SVG -> metadata -> CDATA (interactive svg)
-- [ ] render w/ SVG only (static)
-
-- [ ] exploring dom updates:update object.data
-- [ ] vs live updates inside an embedded SVG using  postMessage().
- 
+- [ ] consider adopting https://github.com/microsoft/monaco-editor/tree/main for multi-language support
+- [ ] petri-view.js could support multiple configurations - viewer vs editor vs banner vs thumbnail

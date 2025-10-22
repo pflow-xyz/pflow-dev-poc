@@ -1,19 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>pflow | metamodel </title>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1" name="viewport"/>
-    <link href="%PUBLIC_URL%/apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
-    <link href="%PUBLIC_URL%/favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
-    <link href="%PUBLIC_URL%/favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
-    <link href="%PUBLIC_URL%/site.webmanifest" rel="manifest">
-    <link color="#5bbad5" href="%PUBLIC_URL%/safari-pinned-tab.svg" rel="mask-icon">
-    <meta content="#da532c" name="msapplication-TileColor">
-    <meta content="#ffffff" name="theme-color">
+    <title>Petri view (HTML/CSS + Canvas)</title>
+    <link href="petri-view.css" rel="stylesheet"/>
+    <script src="petri-view.js" type="module"></script>
 </head>
 <body>
-<noscript>You need to enable JavaScript to run this app.</noscript>
-<div id="root"></div>
+<petri-view>
+    <script type="application/ld+json">
+        {
+            "@context": "https://pflow.xyz/schema",
+            "@type": "PetriNet",
+            "token": [
+                "https://pflow.xyz/tokens/black"
+            ],
+            "places": {
+                "place0": {
+                    "@type": "Place",
+                    "offset": 0,
+                    "initial": [
+                        1
+                    ],
+                    "capacity": [
+                        3
+                    ],
+                    "x": 130,
+                    "y": 207
+                }
+            },
+            "transitions": {
+                "txn0": {
+                    "@type": "Transition",
+                    "x": 46,
+                    "y": 116
+                },
+                "txn1": {
+                    "@type": "Transition",
+                    "x": 227,
+                    "y": 112
+                },
+                "txn2": {
+                    "@type": "Transition",
+                    "x": 43,
+                    "y": 307
+                },
+                "txn3": {
+                    "@type": "Transition",
+                    "x": 235,
+                    "y": 306
+                }
+            },
+            "arcs": [
+                {
+                    "@type": "Arrow",
+                    "source": "txn0",
+                    "target": "place0",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "@type": "Arrow",
+                    "source": "place0",
+                    "target": "txn1",
+                    "weight": [
+                        3
+                    ]
+                },
+                {
+                    "@type": "Arrow",
+                    "source": "txn2",
+                    "target": "place0",
+                    "weight": [
+                        3
+                    ],
+                    "inhibitTransition": true
+                },
+                {
+                    "@type": "Arrow",
+                    "source": "place0",
+                    "target": "txn3",
+                    "weight": [
+                        1
+                    ],
+                    "inhibitTransition": true
+                }
+            ]
+        }
+    </script>
+</petri-view>
 </body>
 </html>
