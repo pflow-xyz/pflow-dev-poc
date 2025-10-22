@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
   <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -8,14 +8,27 @@
       petri-view { display: block; width: 100%; height: 700px; border: 1px solid #ddd; }
       .pv-root { position: relative; width: 100%; height: 100%; font-family: system-ui, Arial; background:#fafafa; overflow: hidden; }
       canvas.pv-canvas { position: absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; }
+
+      /* nodes */
       .pv-node { position: absolute; box-sizing: border-box; display:flex; align-items:center; justify-content:center; user-select:none; }
-      .pv-place { width:80px; height:80px; border-radius:40px; background:linear-gradient(180deg,#fff,#f0f7ff); border:3px solid #4a90e2; box-shadow:0 6px 10px rgba(74,144,226,0.12); }
-      .pv-transition { width:24px; height:60px; background:#333; border-radius:6px; box-shadow:0 4px 8px rgba(0,0,0,0.12); }
-      .pv-label { position:absolute; left:50%; transform:translateX(-50%); font-size:12px; color:#222; top:100%; margin-top:6px; }
-      .pv-token { position:absolute; top:-8px; right:-8px; background:#111; color:#fff; min-width:20px; height:20px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:12px; padding:0 6px; box-shadow:0 2px 6px rgba(0,0,0,0.25); }
+      /* place: outer container 72-80px, inner white circle with black stroke (r~16) */
+      .pv-place { width:80px; height:80px; border-radius:40px; display:flex; align-items:center; justify-content:center; pointer-events:auto; }
+      .pv-place-inner { width:32px; height:32px; border-radius:50%; background:#fff; border:1.5px solid #000; box-shadow:none; box-sizing:border-box; }
+      .pv-place-handle { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:72px; height:72px; border-radius:50%; background:transparent; pointer-events:auto; }
+
+      /* transition: 30x30 rounded rect */
+      .pv-transition { width:30px; height:30px; border-radius:4px; display:flex; align-items:center; justify-content:center; cursor:pointer; box-sizing:border-box; background:#ffffff; border:1px solid #000; }
+      .pv-transition.pv-active { background:#62fa75; }
+
+      .pv-label { position:absolute; left:50%; transform:translateX(-50%); font-size:12px; color:#222; top:100%; margin-top:6px; pointer-events:none; }
+      /* token: for counts >1 show badge, for single token show small dot */
+      .pv-token { position:absolute; top:-8px; right:-8px; background:#111; color:#fff; min-width:20px; height:20px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:12px; padding:0 6px; box-shadow:0 2px 6px rgba(0,0,0,0.25); pointer-events:none; }
+      .pv-token-dot { width:6px; height:6px; border-radius:50%; background:#000; box-shadow:none; pointer-events:none; position:absolute; right:-2px; top:-2px; }
+
       .pv-inhibit { stroke: #c0392b; }
-      .pv-weight { position:absolute; font-size:11px; background:#fff; padding:2px 6px; border-radius:12px; box-shadow:0 2px 4px rgba(0,0,0,0.08); }
+      .pv-weight { position:absolute; font-size:11px; background:#fff; padding:2px 6px; border-radius:12px; box-shadow:0 2px 4px rgba(0,0,0,0.08); pointer-events:none; }
     </style>
+    <script type="module" src="./x-pflow.js"></script>
   </head>
   <body>
     <petri-view>
@@ -52,242 +65,5 @@
   }
       </script>
     </petri-view>
-
-    <script type="module">
-      class PetriView extends HTMLElement {
-        constructor() {
-          super();
-          this._model = {};
-          this._root = null;
-          this._canvas = null;
-          this._ctx = null;
-          this._nodes = {}; // id -> element
-          this._ro = null;
-          this._dpr = window.devicePixelRatio || 1;
-        }
-
-        connectedCallback() {
-          if (this._root) return;
-          this._root = document.createElement('div');
-          this._root.className = 'pv-root';
-          this.appendChild(this._root);
-
-          this._canvas = document.createElement('canvas');
-          this._canvas.className = 'pv-canvas';
-          this._root.appendChild(this._canvas);
-          this._ctx = this._canvas.getContext('2d');
-
-          // parse model from a child script[type="application/ld+json"]
-          const ld = this.querySelector('script[type="application/ld+json"]');
-          if (ld && ld.textContent) {
-            try { this._model = JSON.parse(ld.textContent); } catch(e) { this._model = {}; }
-          }
-
-          this._renderUI();
-          // redraw on resize
-          this._ro = new ResizeObserver(() => this._onResize());
-          this._ro.observe(this._root);
-          window.addEventListener('load', () => this._onResize());
-        }
-
-        disconnectedCallback() {
-          if (this._ro) this._ro.disconnect();
-          window.removeEventListener('load', this._onResize);
-        }
-
-        setModel(m) {
-          this._model = m || {};
-          this._renderUI();
-        }
-
-        getModel() { return this._model; }
-
-        _renderUI() {
-          // clear existing nodes (leave canvas)
-          Object.values(this._nodes).forEach(n => n.remove());
-          this._nodes = {};
-
-          const places = this._model.places || {};
-          const transitions = this._model.transitions || {};
-          const arcs = this._model.arcs || [];
-
-          // create elements for places
-          Object.entries(places).forEach(([id, p]) => {
-            const el = document.createElement('div');
-            el.className = 'pv-node pv-place';
-            el.dataset.id = id;
-            el.style.left = `${(p.x || 0) - 40}px`;
-            el.style.top = `${(p.y || 0) - 40}px`;
-            const label = document.createElement('div');
-            label.className = 'pv-label';
-            label.textContent = id;
-            el.appendChild(label);
-
-            const tokenCount = Array.isArray(p.initial) ? p.initial.reduce((s, v)=>s+ (Number(v)||0), 0) : 0;
-            if (tokenCount > 0) {
-              const token = document.createElement('div');
-              token.className = 'pv-token';
-              token.textContent = ''+tokenCount;
-              el.appendChild(token);
-            }
-
-            this._root.appendChild(el);
-            this._nodes[id] = el;
-          });
-
-          // create elements for transitions
-          Object.entries(transitions).forEach(([id, t]) => {
-            const el = document.createElement('div');
-            el.className = 'pv-node pv-transition';
-            el.dataset.id = id;
-            el.style.left = `${(t.x || 0) - 12}px`;
-            el.style.top = `${(t.y || 0) - 30}px`;
-
-            const label = document.createElement('div');
-            label.className = 'pv-label';
-            label.textContent = id;
-            el.appendChild(label);
-
-            // interaction: firing (simple visual pulse)
-            el.addEventListener('click', () => {
-              el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 250 });
-              this.dispatchEvent(new CustomEvent('transition-fired', { detail: { id } }));
-            });
-
-            this._root.appendChild(el);
-            this._nodes[id] = el;
-          });
-
-          // weight badges near middle of arc (created as DOM for accessibility)
-          arcs.forEach((arc, idx) => {
-            const w = Array.isArray(arc.weight) ? (arc.weight[0] || 1) : 1;
-            const badge = document.createElement('div');
-            badge.className = 'pv-weight';
-            badge.style.pointerEvents = 'none';
-            badge.dataset.arc = idx;
-            badge.textContent = w > 1 ? `${w}` : '';
-            this._root.appendChild(badge);
-          });
-
-          this._onResize();
-        }
-
-        _onResize() {
-          // size canvas
-          const rect = this._root.getBoundingClientRect();
-          const w = Math.max(300, Math.floor(rect.width));
-          const h = Math.max(200, Math.floor(rect.height));
-          this._canvas.width = Math.floor(w * this._dpr);
-          this._canvas.height = Math.floor(h * this._dpr);
-          this._canvas.style.width = `${w}px`;
-          this._canvas.style.height = `${h}px`;
-          this._ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
-
-          this._draw();
-        }
-
-        _draw() {
-          const ctx = this._ctx;
-          ctx.clearRect(0,0,this._canvas.width/this._dpr, this._canvas.height/this._dpr);
-          ctx.lineWidth = 2;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-
-          const arcs = this._model.arcs || [];
-          arcs.forEach((arc, idx) => {
-            const srcEl = this._nodes[arc.source];
-            const trgEl = this._nodes[arc.target];
-            if (!srcEl || !trgEl) return;
-
-            const srcRect = srcEl.getBoundingClientRect();
-            const trgRect = trgEl.getBoundingClientRect();
-            const rootRect = this._root.getBoundingClientRect();
-
-            // compute centers relative to root
-            const sx = (srcRect.left + srcRect.width/2) - rootRect.left;
-            const sy = (srcRect.top + srcRect.height/2) - rootRect.top;
-            const tx = (trgRect.left + trgRect.width/2) - rootRect.left;
-            const ty = (trgRect.top + trgRect.height/2) - rootRect.top;
-
-            // if connecting a round place to a narrow transition, nudge endpoints to the edge
-            const srcIsPlace = srcEl.classList.contains('pv-place');
-            const trgIsPlace = trgEl.classList.contains('pv-place');
-
-            const padSrc = srcIsPlace ? (srcRect.width/2 - 6) : (srcRect.width/2 - 4);
-            const padTrg = trgIsPlace ? (trgRect.width/2 - 6) : (trgRect.width/2 - 4);
-
-            // compute direction vector and normalize
-            const dx = tx - sx, dy = ty - sy;
-            const dist = Math.hypot(dx, dy) || 1;
-            const ux = dx / dist, uy = dy / dist;
-
-            const ex = sx + ux * padSrc;
-            const ey = sy + uy * padSrc;
-            const fx = tx - ux * padTrg;
-            const fy = ty - uy * padTrg;
-
-            // draw main line
-            ctx.beginPath();
-            if (arc.inhibitTransition) {
-              ctx.strokeStyle = '#c0392b';
-              ctx.setLineDash([6,4]);
-            } else {
-              ctx.strokeStyle = '#2c3e50';
-              ctx.setLineDash([]);
-            }
-            // slight cubic bezier for nicer curves
-            const curvature = Math.min(80, dist * 0.25);
-            const cx1 = ex + (-uy) * curvature;
-            const cy1 = ey + (ux) * curvature;
-            const cx2 = fx + (uy) * curvature;
-            const cy2 = fy + (-ux) * curvature;
-            ctx.moveTo(ex, ey);
-            ctx.bezierCurveTo(cx1, cy1, cx2, cy2, fx, fy);
-            ctx.stroke();
-
-            // draw arrowhead at target
-            const ahSize = 8;
-            // arrow direction approximated from last segment tangent
-            const tpx = fx;
-            const tpy = fy;
-            const tanx = (fx - (cx2)) || ux;
-            const tany = (fy - (cy2)) || uy;
-            const tlen = Math.hypot(tanx, tany) || 1;
-            const pux = tanx / tlen, puy = tany / tlen;
-
-            const leftx = tpx - pux * ahSize - puy * (ahSize * 0.6);
-            const lefty = tpy - puy * ahSize + pux * (ahSize * 0.6);
-            const rightx = tpx - pux * ahSize + puy * (ahSize * 0.6);
-            const righty = tpy - puy * ahSize - pux * (ahSize * 0.6);
-
-            ctx.beginPath();
-            ctx.fillStyle = arc.inhibitTransition ? '#c0392b' : '#2c3e50';
-            ctx.moveTo(tpx, tpy);
-            ctx.lineTo(leftx, lefty);
-            ctx.lineTo(rightx, righty);
-            ctx.closePath();
-            ctx.fill();
-
-            // place the weight badge in the mid-point of the bezier curve parameter t=0.5
-            const t = 0.5;
-            // cubic bezier point formula
-            const bx = this._cubicAt(ex, cx1, cx2, fx, t);
-            const by = this._cubicAt(ey, cy1, cy2, fy, t);
-            const badge = this._root.querySelector(`.pv-weight[data-arc="${idx}"]`);
-            if (badge) {
-              badge.style.left = `${bx - 12}px`;
-              badge.style.top = `${by - 10}px`;
-            }
-          });
-        }
-
-        _cubicAt(a, b, c, d, t) {
-          const mt = 1 - t;
-          return mt*mt*mt*a + 3*mt*mt*t*b + 3*mt*t*t*c + t*t*t*d;
-        }
-      }
-
-      customElements.define('petri-view', PetriView);
-    </script>
   </body>
   </html>
