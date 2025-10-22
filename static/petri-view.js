@@ -1,14 +1,5 @@
-// x-pflow.js
-// Enhanced <petri-view> web component for pflow.xyz-style Petri nets
-// Features added:
-// - Token marking + live enabling logic (standard + inhibitor arcs)
-// - Capacity enforcement on places
-// - Click-to-fire transitions (with success/failure events)
-// - Drag/move places & transitions
-// - Auto-highlight enabled transitions (pv-active)
-// - Import/Export helpers + schema normalization
-// - Events: marking-changed, transition-fired, transition-fired-success, transition-fired-blocked, node-moved
-
+// javascript
+// static/petri-view.js
 class PetriView extends HTMLElement {
     constructor() {
         super();
@@ -23,6 +14,11 @@ class PetriView extends HTMLElement {
 
         this._drag = null; // {id, kind:"place|transition", dx, dy}
         this._ldScript = null; // <script type="application/ld+json"> to keep in sync
+
+        // new: editing state
+        this._mode = 'select'; // select | add-place | add-transition | add-arc | add-token | delete
+        this._arcDraft = null; // { source: id }
+        this._menu = null;
     }
 
     // -------- lifecycle ------------------------------------------------------
@@ -31,6 +27,7 @@ class PetriView extends HTMLElement {
 
         this._root = document.createElement('div');
         this._root.className = 'pv-root';
+        this._root.style.position = 'relative';
         this.appendChild(this._root);
 
         this._canvas = document.createElement('canvas');
@@ -46,6 +43,9 @@ class PetriView extends HTMLElement {
 
         this._normalizeModel();
         this._renderUI();
+
+        // create edit menu
+        this._createMenu();
 
         // resize/draw observers
         this._ro = new ResizeObserver(() => this._onResize());
@@ -221,6 +221,37 @@ class PetriView extends HTMLElement {
         return true;
     }
 
+    // small helper: briefly flash an element to indicate invalid arc attempt
+    _flashInvalidArc(el) {
+        if (!el) return;
+        el.classList.add('pv-invalid');
+        setTimeout(() => el.classList.remove('pv-invalid'), 350);
+    }
+
+    // delete helper: remove node and any arcs referencing it
+    _deleteNode(id) {
+        if (!this._model) return;
+        let changed = false;
+        if (this._model.places && this._model.places[id]) {
+            delete this._model.places[id];
+            changed = true;
+        }
+        if (this._model.transitions && this._model.transitions[id]) {
+            delete this._model.transitions[id];
+            changed = true;
+        }
+        if (changed) {
+            // remove arcs that reference this id
+            this._model.arcs = (this._model.arcs || []).filter(a => a.source !== id && a.target !== id);
+            // clear any draft referencing deleted node
+            if (this._arcDraft && this._arcDraft.source === id) this._arcDraft = null;
+            this._normalizeModel();
+            this._renderUI();
+            this._syncLD();
+            this.dispatchEvent(new CustomEvent('node-deleted', { detail: { id } }));
+        }
+    }
+
     // -------- UI render ------------------------------------------------------
     _renderUI() {
         // clear existing nodes (leave canvas)
@@ -238,6 +269,7 @@ class PetriView extends HTMLElement {
             const el = document.createElement('div');
             el.className = 'pv-node pv-place';
             el.dataset.id = id;
+            el.style.position = 'absolute';
             el.style.left = `${(p.x||0) - 40}px`;
             el.style.top  = `${(p.y||0) - 40}px`;
 
@@ -254,6 +286,55 @@ class PetriView extends HTMLElement {
             label.textContent = id;
             el.appendChild(label);
 
+            // click behavior depends on mode
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (this._mode === 'select') return;
+                if (this._mode === 'add-token') {
+                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)];
+                    arr[0] = (Number(arr[0]) || 0) + 1;
+                    p.initial = arr;
+                    this._syncLD();
+                    this._renderTokens();
+                    this._draw();
+                    return;
+                }
+                if (this._mode === 'add-arc') {
+                    this._arcNodeClicked(id);
+                    return;
+                }
+                if (this._mode === 'delete') {
+                    this._deleteNode(id);
+                    return;
+                }
+                // other modes ignore clicks on places
+            });
+
+            // right-click (contextmenu) to remove a token when in token mode,
+            // OR finish/start an inhibitor arc when in add-arc mode.
+            el.addEventListener('contextmenu', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (this._mode === 'add-token') {
+                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)];
+                    arr[0] = Math.max(0, (Number(arr[0]) || 0) - 1);
+                    p.initial = arr;
+                    this._syncLD();
+                    this._renderTokens();
+                    this._draw();
+                    return;
+                }
+                if (this._mode === 'add-arc') {
+                    // finish or start arc as inhibitor
+                    this._arcNodeClicked(id, { inhibit: true });
+                    return;
+                }
+                if (this._mode === 'delete') {
+                    this._deleteNode(id);
+                    return;
+                }
+            });
+
             // drag
             handle.addEventListener('pointerdown', (ev)=> this._beginDrag(ev, id, 'place'));
 
@@ -266,6 +347,7 @@ class PetriView extends HTMLElement {
             const el = document.createElement('div');
             el.className = 'pv-node pv-transition';
             el.dataset.id = id;
+            el.style.position = 'absolute';
             el.style.left = `${(t.x||0) - 15}px`;
             el.style.top  = `${(t.y||0) - 15}px`;
 
@@ -274,12 +356,37 @@ class PetriView extends HTMLElement {
             label.textContent = id;
             el.appendChild(label);
 
-            // click-to-fire
-            el.addEventListener('click', () => {
-                this.dispatchEvent(new CustomEvent('transition-fired', {detail:{id}}));
-                // pulse
-                el.animate([{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}], {duration:250});
-                this._fire(id);
+            // click-to-fire OR editing behavior
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (this._mode === 'select') {
+                    this.dispatchEvent(new CustomEvent('transition-fired', {detail:{id}}));
+                    // pulse
+                    el.animate([{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}], {duration:250});
+                    this._fire(id);
+                    return;
+                }
+                if (this._mode === 'add-arc') {
+                    this._arcNodeClicked(id);
+                    return;
+                }
+                if (this._mode === 'delete') {
+                    this._deleteNode(id);
+                    return;
+                }
+                // other modes ignore transition clicks
+            });
+
+            // right-click in arc mode toggles/creates inhibitor-typed arc finish/start
+            el.addEventListener('contextmenu', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (this._mode === 'add-arc') {
+                    this._arcNodeClicked(id, { inhibit: true });
+                }
+                if (this._mode === 'delete') {
+                    this._deleteNode(id);
+                }
             });
 
             // drag
@@ -298,9 +405,66 @@ class PetriView extends HTMLElement {
             })();
             const badge = document.createElement('div');
             badge.className = 'pv-weight';
-            badge.style.pointerEvents = 'none';
+            // allow interaction with badge
+            badge.style.pointerEvents = 'auto';
             badge.dataset.arc = String(idx);
             badge.textContent = w > 1 ? `${w}` : '1';
+            badge.style.position = 'absolute';
+
+            // left-click in add-token mode: set weight via prompt; in delete mode remove arc
+            badge.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const i = Number(badge.dataset.arc);
+                const a = this._model.arcs && this._model.arcs[i];
+                if (!a) return;
+                if (this._mode === 'add-token') {
+                    try {
+                        const ans = prompt('Arc weight (positive integer)', String(Number(a.weight?.[0]||1)));
+                        const parsed = Number(ans);
+                        if (!Number.isNaN(parsed) && parsed > 0) {
+                            a.weight = [Math.floor(parsed)];
+                            this._normalizeModel();
+                            this._renderUI();
+                            this._syncLD();
+                        }
+                    } catch (e) {}
+                    return;
+                }
+                if (this._mode === 'delete') {
+                    // remove arc by index
+                    this._model.arcs = (this._model.arcs || []).filter((_, j) => j !== i);
+                    this._normalizeModel();
+                    this._renderUI();
+                    this._syncLD();
+                    return;
+                }
+            });
+
+            // right-click in add-token mode: decrement weight by 1 (min 1)
+            badge.addEventListener('contextmenu', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const i = Number(badge.dataset.arc);
+                const a = this._model.arcs && this._model.arcs[i];
+                if (!a) return;
+                if (this._mode === 'add-token') {
+                    const cur = Number(a.weight?.[0] || 1);
+                    const nw = Math.max(1, cur - 1);
+                    a.weight = [nw];
+                    this._normalizeModel();
+                    this._renderUI();
+                    this._syncLD();
+                    return;
+                }
+                if (this._mode === 'delete') {
+                    // remove arc by index
+                    this._model.arcs = (this._model.arcs || []).filter((_, j) => j !== i);
+                    this._normalizeModel();
+                    this._renderUI();
+                    this._syncLD();
+                }
+            });
+
             this._root.appendChild(badge);
             this._weights.push(badge);
         });
@@ -311,6 +475,10 @@ class PetriView extends HTMLElement {
 
         this._onResize();
         this._syncLD();
+
+        // visual arc-draft highlight update
+        this._updateArcDraftHighlight();
+        this._updateMenuActive();
     }
 
     _renderTokens() {
@@ -343,6 +511,172 @@ class PetriView extends HTMLElement {
             if (!el.classList.contains('pv-transition')) continue;
             const on = this._enabled(id, marks);
             el.classList.toggle('pv-active', !!on);
+        }
+    }
+
+    // -------- edit menu -----------------------------------------------------
+    _createMenu() {
+        if (this._menu) this._menu.remove();
+        this._menu = document.createElement('div');
+        this._menu.className = 'pv-menu';
+        // basic inline styles so it's visible without external CSS
+        Object.assign(this._menu.style, {
+            position: 'absolute',
+            bottom: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: '8px',
+            padding: '6px 8px',
+            background: 'rgba(255,255,255,0.9)',
+            borderRadius: '8px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+            zIndex: 2000,
+            alignItems: 'center',
+            userSelect: 'none',
+            fontSize: '14px'
+        });
+
+        const tools = [
+            {mode:'select', label:'◉', title:'Select / Fire (default)'},
+            {mode:'add-place', label:'\u25CB', title:'Add Place'},
+            {mode:'add-transition', label:'\u25A3', title:'Add Transition'},
+            {mode:'add-arc', label:'\u2192', title:'Add Arc'},
+            {mode:'add-token', label:'\u2022', title:'Add / Remove Tokens'},
+            {mode:'delete', label:'\u{1F5D1}', title:'Delete element (nodes or arcs)'},
+        ];
+
+        tools.forEach(t => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'pv-tool';
+            // ensure emoji works in older JS engines by using textContent assignment
+            btn.textContent = t.label;
+            btn.title = t.title;
+            Object.assign(btn.style, {
+                width: '36px', height: '36px', borderRadius: '6px', border: 'none',
+                background: 'transparent', cursor: 'pointer', fontSize: '16px'
+            });
+            btn.dataset.mode = t.mode;
+            btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._setMode(t.mode);
+            });
+            this._menu.appendChild(btn);
+        });
+
+        this._root.appendChild(this._menu);
+
+        // click on empty root to add nodes when in add-place/add-transition mode
+        this._root.addEventListener('click', (ev) => {
+            // ignore clicks that hit nodes (we handle node clicks separately)
+            if (ev.target.closest('.pv-node')) return;
+            const rect = this._root.getBoundingClientRect();
+            const x = Math.round(ev.clientX - rect.left);
+            const y = Math.round(ev.clientY - rect.top);
+
+            if (this._mode === 'add-place') {
+                const id = this._generateId('p');
+                this._model.places[id] = { '@type':'Place', x: x, y: y, initial: [0], capacity: [Infinity] };
+                this._normalizeModel();
+                this._renderUI();
+                this._syncLD();
+            } else if (this._mode === 'add-transition') {
+                const id = this._generateId('t');
+                this._model.transitions[id] = { '@type':'Transition', x: x, y: y };
+                this._normalizeModel();
+                this._renderUI();
+                this._syncLD();
+            }
+        });
+    }
+
+    _setMode(mode) {
+        this._mode = mode;
+        // cancel any arc draft when switching away from add-arc
+        if (mode !== 'add-arc' && this._arcDraft) {
+            this._arcDraft = null;
+            this._updateArcDraftHighlight();
+        }
+        this._updateMenuActive();
+    }
+
+    _updateMenuActive() {
+        if (!this._menu) return;
+        this._menu.querySelectorAll('.pv-tool').forEach(btn => {
+            btn.style.background = (btn.dataset.mode === this._mode) ? 'rgba(0,0,0,0.08)' : 'transparent';
+        });
+    }
+
+    _generateId(prefix) {
+        // simple unique id based on timestamp + counter
+        const base = prefix + Date.now().toString(36);
+        let id = base;
+        let i = 0;
+        while ((this._model.places && this._model.places[id]) || (this._model.transitions && this._model.transitions[id])) {
+            id = base + '-' + (++i);
+        }
+        return id;
+    }
+
+    // allow optional options, e.g. { inhibit: true } to create inhibitor arcs via right-click
+    _arcNodeClicked(id, opts = {}) {
+        if (!this._arcDraft || !this._arcDraft.source) {
+            // start arc
+            this._arcDraft = { source: id };
+            this._updateArcDraftHighlight();
+            return;
+        }
+        // finish arc
+        const source = this._arcDraft.source;
+        const target = id;
+
+        // disallow arcs between two shapes of the same type
+        const srcEl = this._nodes[source];
+        const trgEl = this._nodes[target];
+        if (srcEl && trgEl) {
+            const srcIsPlace = srcEl.classList.contains('pv-place');
+            const trgIsPlace = trgEl.classList.contains('pv-place');
+            if (srcIsPlace === trgIsPlace) {
+                // same-type attempted, flash invalid and cancel draft
+                this._flashInvalidArc(srcEl);
+                this._flashInvalidArc(trgEl);
+                this._arcDraft = null;
+                this._updateArcDraftHighlight();
+                return;
+            }
+        }
+
+        if (source === target) {
+            // cancel self-arc creation
+            this._arcDraft = null;
+            this._updateArcDraftHighlight();
+            return;
+        }
+        // optional weight prompt
+        let w = 1;
+        try {
+            const ans = prompt('Arc weight (positive integer)', '1');
+            const parsed = Number(ans);
+            if (!Number.isNaN(parsed) && parsed > 0) w = Math.floor(parsed);
+        } catch (e) {}
+        this._model.arcs = this._model.arcs || [];
+        const inhibit = !!opts.inhibit;
+        this._model.arcs.push({ '@type':'Arrow', source, target, weight: [w], inhibitTransition: inhibit });
+        this._arcDraft = null;
+        this._normalizeModel();
+        this._renderUI();
+        this._syncLD();
+    }
+
+    _updateArcDraftHighlight() {
+        // remove any existing highlight
+        for (const el of Object.values(this._nodes)) {
+            el.classList.toggle('pv-arc-src', false);
+        }
+        if (this._arcDraft && this._arcDraft.source) {
+            const srcEl = this._nodes[this._arcDraft.source];
+            if (srcEl) srcEl.classList.toggle('pv-arc-src', true);
         }
     }
 
@@ -499,6 +833,27 @@ class PetriView extends HTMLElement {
                 badge.style.top = `${by - 10}px`;
             }
         });
+
+        // optionally draw arc draft preview
+        if (this._arcDraft && this._arcDraft.source) {
+            const srcEl = this._nodes[this._arcDraft.source];
+            if (srcEl) {
+                const srcRect = srcEl.getBoundingClientRect();
+                const rootRect = this._root.getBoundingClientRect();
+                const sx = (srcRect.left + srcRect.width/2) - rootRect.left;
+                const sy = (srcRect.top + srcRect.height/2) - rootRect.top;
+                // draw line from source to current mouse if available (best-effort)
+                // note: for simplicity this example does not track mouse while drafting
+                ctx.setLineDash([4,4]);
+                ctx.strokeStyle = '#666';
+                ctx.beginPath();
+                // short stub to indicate draft
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(sx+20, sy+0);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
     }
 }
 

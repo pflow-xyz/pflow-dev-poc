@@ -6,6 +6,16 @@ build of app.pflow.dev - no wallet connector - minimal build/viewer
 
 WIP
 ---
+- [ ] refactor to use canvas elements
+- [ ] refine SVG + editor commands
+- [ ] rebuild w/ 1st class json+ld support
+- [ ] all edited object add permalinks
+- [ ] add - save permalink button
+
+
+
+BACKLOG
+-------
 - [ ] gno.land version needs multi-token support
 - [ ] url-visualizer on gno.land to build out multi-step actions
 - [ ] fix token colors - changing colors in the editor should change the diagram
@@ -21,8 +31,8 @@ WIP
 - [x] in this project use ./static/form.html and ./static/model.svg as template
 - [x] Review roadmap.md - consider deploying gnoland-only version first
 
-BACKLOG
--------
+ICEBOX
+------
 - [ ] fix failing tests
 - [ ] complete upgrades for colored tokens
 - [ ] check backward-compatible support for URL formats
@@ -40,8 +50,6 @@ BACKLOG
 - [ ] setup svg badges - does it need? Access-Control-Allow-Origin: *
 
  
-ICEBOX
-------
 - [ ] Use SVG for UI elements and Canvas for complex rendering
 - [ ] backport to pflow.xyz - consider how to store legacy petri-net data to make it compatible with minURL
 - [ ] add new sqlite storage for server
