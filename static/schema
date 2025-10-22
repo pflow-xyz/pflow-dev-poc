@@ -1,0 +1,77 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@vocab": "https://schema.org/",
+    "PetriNet": {
+      "@id": "https://pflow.xyz/schema#PetriNet",
+      "@type": "@id"
+    },
+    "Place": {
+      "@id": "https://pflow.xyz/schema#Place",
+      "@type": "@id"
+    },
+    "Transition": {
+      "@id": "https://pflow.xyz/schema#Transition",
+      "@type": "@id"
+    },
+    "Arrow": {
+      "@id": "https://pflow.xyz/schema#Arrow",
+      "@type": "@id"
+    },
+    "offset": {
+      "@id": "https://pflow.xyz/schema#offset",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "initial": {
+      "@id": "https://pflow.xyz/schema#initial",
+      "@container": "@list",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "capacity": {
+      "@id": "https://pflow.xyz/schema#capacity",
+      "@container": "@list",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "x": {
+      "@id": "https://pflow.xyz/schema#x",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "y": {
+      "@id": "https://pflow.xyz/schema#y",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "token": {
+      "@id": "https://pflow.xyz/schema#token",
+      "@type": "@id"
+    },
+    "ticker": {
+      "@id": "https://pflow.xyz/schema#ticker",
+      "@type": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "denomination": {
+      "@id": "https://pflow.xyz/schema#denomination",
+      "@type": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "inhibitTransition": {
+      "@id": "https://pflow.xyz/schema#inhibitTransition",
+      "@type": "http://www.w3.org/2001/XMLSchema#boolean"
+    },
+    "weight": {
+      "@id": "https://pflow.xyz/schema#weight",
+      "@container": "@list"
+    },
+    "arcType": {
+      "@id": "https://pflow.xyz/schema#arcType",
+      "@type": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "function": {
+      "@id": "https://pflow.xyz/schema#function",
+      "@type": "http://www.w3.org/2001/XMLSchema#string"
+    },
+    "priority": {
+      "@id": "https://pflow.xyz/schema#priority",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    }
+  }
+}
+

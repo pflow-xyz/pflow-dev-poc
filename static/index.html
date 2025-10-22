@@ -1,55 +1,99 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>pflow | model.svg</title>
-    <style type="text/css">
-        @import url("pflow.css");
-    </style>
-</head>
-<body>
-    <a href="https://pflow.xyz" >
-        <img src="title.svg" alt="pflow logo" id="title" />
-    </a>
-    <svg id="svgCanvas" width="100%" height="100%"  xmlns="http://www.w3.org/2000/svg">
-        <foreignObject height="100%" width="100%" x="0" y="0">
-            <object id="svgObject" type="image/svg+xml" data="./model.svg"></object>
-        </foreignObject>
-        <g id="toolbar">
-            <g id="status" transform="translate(5, 607)" >
-                <rect x="0" y="0" width="140" height="20" fill="#fff" rx="5" ry="5"/>
-                <text x="10" y="15">Status: Ready</text>
-            </g>
-            <g id="playBtn" transform="translate(148, 604)" >
-                <circle cx="12" cy="11" r="20" fill="transparent" stroke="transparent" stroke-width="2" />
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m-2.5-3.5 7-4.5-7-4.5z"></path>
-            </g>
-        </g>
-        <g id="history" transform="translate(5, 605)" ></g>
-        <foreignObject height="50%" width="98%" x="0" y="635">
-<textarea id="source">{
-  "modelType": "PetriNet",
-  "version": "v1",
-  "tokens": ["black"],
-  "places": {
-    "place0": { "offset": 0, "initial": [1], "capacity": [3], "x": 130, "y": 207 }
-  },
-  "transitions": {
-    "txn0": { "x": 46, "y": 116 },
-    "txn1": { "x": 227, "y": 112 },
-    "txn2": { "x": 43, "y": 307 },
-    "txn3": { "x": 235, "y": 306 }
-  },
-  "arcs": [
-    { "source": "txn0", "target": "place0", "weight": [1] },
-    { "source": "place0", "target": "txn1", "weight": [3] },
-    { "source": "txn2", "target": "place0", "weight": [3], "inhibit": true },
-    { "source": "place0", "target": "txn3", "weight": [1], "inhibit": true }
-  ]
-}</textarea>
-        </foreignObject>
-    </svg>
-    <script src="pflow.js"></script>
-</body>
-</html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>pflow | model.svg</title>
+      <style type="text/css">
+          @import url("pflow.css");
+      </style>
+  </head>
+  <body>
+      <a href="https://pflow.xyz" >
+          <img src="title.svg" alt="pflow logo" id="title" />
+      </a>
+      <svg id="svgCanvas" width="100%" height="100%"  xmlns="http://www.w3.org/2000/svg">
+          <foreignObject height="100%" width="100%" x="0" y="0">
+              <object id="svgObject" type="image/svg+xml" data="./model.svg"></object>
+          </foreignObject>
+          <g id="toolbar">
+              <g id="status" transform="translate(5, 607)" >
+                  <rect x="0" y="0" width="140" height="20" fill="#fff" rx="5" ry="5"/>
+                  <text x="10" y="15">Status: Ready</text>
+              </g>
+              <g id="playBtn" transform="translate(148, 604)" >
+                  <circle cx="12" cy="11" r="20" fill="transparent" stroke="transparent" stroke-width="2" />
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m-2.5-3.5 7-4.5-7-4.5z"></path>
+              </g>
+          </g>
+          <g id="history" transform="translate(5, 605)" ></g>
+          <foreignObject height="50%" width="98%" x="0" y="635">
+  <textarea id="source">{
+    "@context": "https://pflow.xyz/schema",
+    "@type": "PetriNet",
+    "version": "v1",
+    "token": [
+      "https://pflow.xyz/tokens/black"
+    ],
+    "places": {
+      "place0": {
+        "@type": "Place",
+        "offset": 0,
+        "initial": [1],
+        "capacity": [3],
+        "x": 130,
+        "y": 207
+      }
+    },
+    "transitions": {
+      "txn0": { "@type": "Transition", "x": 46, "y": 116 },
+      "txn1": { "@type": "Transition", "x": 227, "y": 112 },
+      "txn2": { "@type": "Transition", "x": 43, "y": 307 },
+      "txn3": { "@type": "Transition", "x": 235, "y": 306 }
+    },
+    "arcs": [
+      { "@type": "Arrow", "source": "txn0", "target": "place0", "weight": [1] },
+      { "@type": "Arrow", "source": "place0", "target": "txn1", "weight": [3] },
+      { "@type": "Arrow", "source": "txn2", "target": "place0", "weight": [3], "inhibitTransition": true },
+      { "@type": "Arrow", "source": "place0", "target": "txn3", "weight": [1], "inhibitTransition": true }
+    ]
+  }</textarea>
+          </foreignObject>
+      </svg>
+
+      <script type="application/ld+json">
+  {
+    "@context": "https://pflow.xyz/schema",
+    "@type": "PetriNet",
+    "version": "v1",
+    "token": [
+      "https://pflow.xyz/tokens/black"
+    ],
+    "places": {
+      "place0": {
+        "@type": "Place",
+        "offset": 0,
+        "initial": [1],
+        "capacity": [3],
+        "x": 130,
+        "y": 207
+      }
+    },
+    "transitions": {
+      "txn0": { "@type": "Transition", "x": 46, "y": 116 },
+      "txn1": { "@type": "Transition", "x": 227, "y": 112 },
+      "txn2": { "@type": "Transition", "x": 43, "y": 307 },
+      "txn3": { "@type": "Transition", "x": 235, "y": 306 }
+    },
+    "arcs": [
+      { "@type": "Arrow", "source": "txn0", "target": "place0", "weight": [1] },
+      { "@type": "Arrow", "source": "place0", "target": "txn1", "weight": [3] },
+      { "@type": "Arrow", "source": "txn2", "target": "place0", "weight": [3], "inhibitTransition": true },
+      { "@type": "Arrow", "source": "place0", "target": "txn3", "weight": [1], "inhibitTransition": true }
+    ]
+  }
+      </script>
+
+      <script src="pflow.js"></script>
+  </body>
+  </html>
