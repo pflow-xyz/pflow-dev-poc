@@ -5,6 +5,7 @@ class PetriView extends HTMLElement {
         super();
         this._model = {};
         this._root = null;
+        this._stage = null; // new: transformable layer (nodes + canvas live here)
         this._canvas = null;
         this._ctx = null;
         this._nodes = {}; // id -> element (places & transitions)
@@ -15,7 +16,7 @@ class PetriView extends HTMLElement {
         this._drag = null; // {id, kind:"place|transition", dx, dy}
         this._ldScript = null; // <script type="application/ld+json"> to keep in sync
 
-        // new: editing state
+        // editing state
         this._mode = 'select'; // select | add-place | add-transition | add-arc | add-token | delete
         this._arcDraft = null; // { source: id }
         this._menu = null;
@@ -24,20 +25,52 @@ class PetriView extends HTMLElement {
         this._simRunning = false;
         this._prevMode = null;
         this._menuPlayBtn = null;
+
+        // live arc preview
+        this._mouse = {x: 0, y: 0};
+
+        // pan/zoom
+        this._view = {scale: 1, tx: 0, ty: 0};
+        this._panning = null;
+        this._spaceDown = false;
+
+        // history (undo/redo)
+        this._history = [];
+        this._redo = [];
     }
 
     // -------- lifecycle ------------------------------------------------------
     connectedCallback() {
         if (this._root) return;
 
+        // root container
         this._root = document.createElement('div');
         this._root.className = 'pv-root';
         this._root.style.position = 'relative';
+        this._root.style.width = '100%';
+        this._root.style.height = '100%';
         this.appendChild(this._root);
 
+        // stage (pan/zoom via CSS transform)
+        this._stage = document.createElement('div');
+        this._stage.className = 'pv-stage';
+        Object.assign(this._stage.style, {
+            position: 'absolute',
+            left: '0',
+            top: '0',
+            width: '100%',
+            height: '100%',
+            transformOrigin: '0 0'
+        });
+        this._root.appendChild(this._stage);
+
+        // canvas (lives in stage so it pan/zooms with nodes)
         this._canvas = document.createElement('canvas');
         this._canvas.className = 'pv-canvas';
-        this._root.appendChild(this._canvas);
+        this._canvas.style.position = 'absolute';
+        this._canvas.style.left = '0';
+        this._canvas.style.top = '0';
+        this._stage.appendChild(this._canvas);
         this._ctx = this._canvas.getContext('2d');
 
         // parse model from child <script type="application/ld+json">
@@ -48,10 +81,19 @@ class PetriView extends HTMLElement {
             } catch {
                 this._model = {};
             }
+        } else {
+            // try restore from autosave
+            try {
+                const saved = localStorage.getItem('petri-view:last');
+                if (saved) this._model = JSON.parse(saved);
+            } catch {
+            }
         }
 
         this._normalizeModel();
         this._renderUI();
+        this._applyViewTransform();
+        this._pushHistory(true); // seed history
 
         // create edit menu
         this._createMenu();
@@ -61,6 +103,88 @@ class PetriView extends HTMLElement {
         this._ro.observe(this._root);
         // redraw on font load/paint
         window.addEventListener('load', () => this._onResize());
+
+        // track mouse for arc preview
+        this._root.addEventListener('pointermove', (e) => {
+            const r = this._root.getBoundingClientRect();
+            this._mouse.x = Math.round(e.clientX - r.left);
+            this._mouse.y = Math.round(e.clientY - r.top);
+            if (this._arcDraft) this._draw();
+        });
+
+        // pan/zoom: wheel zoom (keep cursor anchored)
+        this._root.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const r = this._root.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+
+            const prev = this._view.scale;
+            const next = Math.max(0.5, Math.min(2.5, prev * (e.deltaY < 0 ? 1.1 : 0.9)));
+            if (next === prev) return;
+
+            // keep point under cursor stable: tx' = mx - (mx - tx) * (next/prev)
+            this._view.tx = mx - (mx - this._view.tx) * (next / prev);
+            this._view.ty = my - (my - this._view.ty) * (next / prev);
+            this._view.scale = next;
+            this._applyViewTransform();
+            this._draw();
+        }, {passive: false});
+
+        // pan with space (or middle click)
+        window.addEventListener('keydown', (e) => {
+            if (e.key === ' ') {
+                this._spaceDown = true;
+            }
+            // undo/redo
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) this._redoAction(); else this._undoAction();
+            }
+            // cancel arc draft
+            if (e.key === 'Escape' && this._arcDraft) {
+                this._arcDraft = null;
+                this._updateArcDraftHighlight();
+                this._draw();
+            }
+            // quick mode keys 1..6
+            const map = {
+                '1': 'select',
+                '2': 'add-place',
+                '3': 'add-transition',
+                '4': 'add-arc',
+                '5': 'add-token',
+                '6': 'delete'
+            };
+            if (map[e.key]) this._setMode(map[e.key]);
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === ' ') {
+                this._spaceDown = false;
+            }
+        });
+
+        this._root.addEventListener('pointerdown', (e) => {
+            // start panning if space, middle button, or Alt/Ctrl/Meta
+            const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey;
+            if (isPan) {
+                this._panning = {x: e.clientX, y: e.clientY, tx: this._view.tx, ty: this._view.ty};
+                this._root.setPointerCapture(e.pointerId);
+            }
+        });
+        this._root.addEventListener('pointermove', (e) => {
+            if (!this._panning) return;
+            this._view.tx = this._panning.tx + (e.clientX - this._panning.x);
+            this._view.ty = this._panning.ty + (e.clientY - this._panning.y);
+            this._applyViewTransform();
+            this._draw();
+        });
+        this._root.addEventListener('pointerup', (e) => {
+            if (this._panning) {
+                this._panning = null;
+                this._root.releasePointerCapture?.(e.pointerId);
+            }
+        });
     }
 
     disconnectedCallback() {
@@ -73,6 +197,7 @@ class PetriView extends HTMLElement {
         this._normalizeModel();
         this._renderUI();
         this._syncLD();
+        this._pushHistory();
     }
 
     getModel() {
@@ -92,12 +217,21 @@ class PetriView extends HTMLElement {
         this._syncLD(true);
     }
 
+    /** Download JSON file of current model */
+    downloadJSON(filename = 'petri-net.json') {
+        const blob = new Blob([this._stableStringify(this._model)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
     // -------- internal: schema & helpers ------------------------------------
     _normalizeModel() {
         const m = this._model || (this._model = {});
         m['@context'] ||= 'https://pflow.xyz/schema';
         m['@type'] ||= 'PetriNet';
-        m.version ||= 'v1';
 
         m.token ||= ['https://pflow.xyz/tokens/black'];
         m.places ||= {};
@@ -141,6 +275,11 @@ class PetriView extends HTMLElement {
     }
 
     _syncLD(force = false) {
+        // autosave
+        try {
+            localStorage.setItem('petri-view:last', this._stableStringify(this._model));
+        } catch {
+        }
         if (!this._ldScript) return; // nothing to sync
         // Pretty unless author opts out with data-compact
         const pretty = !this.hasAttribute('data-compact');
@@ -149,6 +288,38 @@ class PetriView extends HTMLElement {
             this._ldScript.textContent = text;
             this.dispatchEvent(new CustomEvent('jsonld-updated', {detail: {json: this.exportJSON()}}));
         }
+    }
+
+    _pushHistory(seed = false) {
+        const snap = this._stableStringify(this._model);
+        if (seed && this._history.length === 0) {
+            this._history.push(snap);
+            return;
+        }
+        const last = this._history[this._history.length - 1];
+        if (snap !== last) {
+            this._history.push(snap);
+            this._redo.length = 0;
+        }
+    }
+
+    _undoAction() {
+        if (this._history.length < 2) return;
+        const cur = this._history.pop();
+        this._redo.push(cur);
+        const prev = this._history[this._history.length - 1];
+        this._model = JSON.parse(prev);
+        this._renderUI();
+        this._syncLD();
+    }
+
+    _redoAction() {
+        if (!this._redo.length) return;
+        const nxt = this._redo.pop();
+        this._history.push(nxt);
+        this._model = JSON.parse(nxt);
+        this._renderUI();
+        this._syncLD();
     }
 
     _marking() {
@@ -172,6 +343,7 @@ class PetriView extends HTMLElement {
             p.initial = arr;
         }
         this._syncLD();
+        this._pushHistory();
     }
 
     _capacityOf(pid) {
@@ -236,7 +408,7 @@ class PetriView extends HTMLElement {
             const w = Number(a.weight?.[0] ?? 1);
             marks[a.target] = (marks[a.target] || 0) + w;
         }
-        this._setMarking(marks); // also syncs LD
+        this._setMarking(marks); // also syncs LD + push history
         this._renderTokens();
         this._updateTransitionStates();
         this._draw();
@@ -272,6 +444,7 @@ class PetriView extends HTMLElement {
             this._normalizeModel();
             this._renderUI();
             this._syncLD();
+            this._pushHistory();
             this.dispatchEvent(new CustomEvent('node-deleted', {detail: {id}}));
         }
     }
@@ -319,6 +492,7 @@ class PetriView extends HTMLElement {
                     arr[0] = (Number(arr[0]) || 0) + 1;
                     p.initial = arr;
                     this._syncLD();
+                    this._pushHistory();
                     this._renderTokens();
                     this._draw();
                     return;
@@ -329,9 +503,7 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-
                 }
-                // other modes ignore clicks on places
             });
 
             // right-click (contextmenu) to remove a token when in token mode,
@@ -344,6 +516,7 @@ class PetriView extends HTMLElement {
                     arr[0] = Math.max(0, (Number(arr[0]) || 0) - 1);
                     p.initial = arr;
                     this._syncLD();
+                    this._pushHistory();
                     this._renderTokens();
                     this._draw();
                     return;
@@ -355,14 +528,13 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-
                 }
             });
 
             // drag
             handle.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'place'));
 
-            this._root.appendChild(el);
+            this._stage.appendChild(el);
             this._nodes[id] = el;
         }
 
@@ -396,9 +568,7 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-
                 }
-                // other modes ignore transition clicks
             });
 
             // right-click in arc mode toggles/creates inhibitor-typed arc finish/start
@@ -416,7 +586,7 @@ class PetriView extends HTMLElement {
             // drag
             el.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'transition'));
 
-            this._root.appendChild(el);
+            this._stage.appendChild(el);
             this._nodes[id] = el;
         }
 
@@ -450,6 +620,7 @@ class PetriView extends HTMLElement {
                             this._normalizeModel();
                             this._renderUI();
                             this._syncLD();
+                            this._pushHistory();
                         }
                     } catch (e) {
                     }
@@ -461,7 +632,7 @@ class PetriView extends HTMLElement {
                     this._normalizeModel();
                     this._renderUI();
                     this._syncLD();
-
+                    this._pushHistory();
                 }
             });
 
@@ -479,6 +650,7 @@ class PetriView extends HTMLElement {
                     this._normalizeModel();
                     this._renderUI();
                     this._syncLD();
+                    this._pushHistory();
                     return;
                 }
                 if (this._mode === 'delete') {
@@ -487,10 +659,11 @@ class PetriView extends HTMLElement {
                     this._normalizeModel();
                     this._renderUI();
                     this._syncLD();
+                    this._pushHistory();
                 }
             });
 
-            this._root.appendChild(badge);
+            this._stage.appendChild(badge);
             this._weights.push(badge);
         });
 
@@ -563,19 +736,18 @@ class PetriView extends HTMLElement {
         });
 
         const tools = [
-            {mode: 'select', label: '\u26F6', title: 'Select / Fire (default)'},
-            {mode: 'add-place', label: '\u20DD', title: 'Add Place'},
-            {mode: 'add-transition', label: '\u25A2', title: 'Add Transition'},
-            {mode: 'add-arc', label: '\u2192', title: 'Add Arc'},
-            {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens'},
-            {mode: 'delete', label: '\u{1F5D1}', title: 'Delete element (nodes or arcs)'},
+            {mode: 'select', label: '\u26F6', title: 'Select / Fire (1)'},
+            {mode: 'add-place', label: '\u20DD', title: 'Add Place (2)'},
+            {mode: 'add-transition', label: '\u25A2', title: 'Add Transition (3)'},
+            {mode: 'add-arc', label: '\u2192', title: 'Add Arc (4)'},
+            {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens (5)'},
+            {mode: 'delete', label: '\u{1F5D1}', title: 'Delete element (6)'},
         ];
 
         tools.forEach(t => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'pv-tool';
-            // ensure emoji works in older JS engines by using textContent assignment
             btn.textContent = t.label;
             btn.title = t.title;
             Object.assign(btn.style, {
@@ -612,8 +784,8 @@ class PetriView extends HTMLElement {
         // click on empty root to add nodes when in add-place/add-transition mode
         this._root.addEventListener('click', (ev) => {
             // ignore clicks that hit nodes (we handle node clicks separately)
-            if (ev.target.closest('.pv-node')) return;
-            const rect = this._root.getBoundingClientRect();
+            if (ev.target.closest('.pv-node') || ev.target.closest('.pv-weight') || ev.target.closest('.pv-menu')) return;
+            const rect = this._stage.getBoundingClientRect();
             const x = Math.round(ev.clientX - rect.left);
             const y = Math.round(ev.clientY - rect.top);
 
@@ -623,12 +795,14 @@ class PetriView extends HTMLElement {
                 this._normalizeModel();
                 this._renderUI();
                 this._syncLD();
+                this._pushHistory();
             } else if (this._mode === 'add-transition') {
                 const id = this._generateId('t');
                 this._model.transitions[id] = {'@type': 'Transition', x: x, y: y};
                 this._normalizeModel();
                 this._renderUI();
                 this._syncLD();
+                this._pushHistory();
             }
         });
     }
@@ -669,6 +843,7 @@ class PetriView extends HTMLElement {
             // start arc
             this._arcDraft = {source: id};
             this._updateArcDraftHighlight();
+            this._draw();
             return;
         }
         // finish arc
@@ -687,6 +862,7 @@ class PetriView extends HTMLElement {
                 this._flashInvalidArc(trgEl);
                 this._arcDraft = null;
                 this._updateArcDraftHighlight();
+                this._draw();
                 return;
             }
         }
@@ -695,6 +871,7 @@ class PetriView extends HTMLElement {
             // cancel self-arc creation
             this._arcDraft = null;
             this._updateArcDraftHighlight();
+            this._draw();
             return;
         }
         // optional weight prompt
@@ -712,6 +889,7 @@ class PetriView extends HTMLElement {
         this._normalizeModel();
         this._renderUI();
         this._syncLD();
+        this._pushHistory();
     }
 
     _updateArcDraftHighlight() {
@@ -770,6 +948,10 @@ class PetriView extends HTMLElement {
     }
 
     // -------- drag & move ----------------------------------------------------
+    _snap(n, g = 10) {
+        return Math.round(n / g) * g;
+    }
+
     _beginDrag(ev, id, kind) {
         ev.preventDefault();
         const el = this._nodes[id];
@@ -777,9 +959,9 @@ class PetriView extends HTMLElement {
         el.setPointerCapture(ev.pointerId);
 
         const rect = el.getBoundingClientRect();
-        const rootRect = this._root.getBoundingClientRect();
-        const startLeft = rect.left - rootRect.left;
-        const startTop = rect.top - rootRect.top;
+        const stageRect = this._stage.getBoundingClientRect();
+        const startLeft = rect.left - stageRect.left;
+        const startTop = rect.top - stageRect.top;
         const startX = ev.clientX;
         const startY = ev.clientY;
 
@@ -807,7 +989,20 @@ class PetriView extends HTMLElement {
             el.releasePointerCapture(ev.pointerId);
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
+
+            // snap-to-grid
+            if (kind === 'place') {
+                const p = this._model.places[id];
+                p.x = this._snap(p.x);
+                p.y = this._snap(p.y);
+            } else {
+                const t = this._model.transitions[id];
+                t.x = this._snap(t.x);
+                t.y = this._snap(t.y);
+            }
+            this._renderUI(); // repositions badges nicely
             this._syncLD();
+            this._pushHistory();
             this.dispatchEvent(new CustomEvent('node-moved', {detail: {id, kind}}));
         };
 
@@ -826,6 +1021,12 @@ class PetriView extends HTMLElement {
         this._canvas.style.height = `${h}px`;
         this._ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
         this._draw();
+    }
+
+    _applyViewTransform() {
+        if (!this._stage) return;
+        const {tx, ty, scale} = this._view;
+        this._stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
     }
 
     _draw() {
@@ -916,31 +1117,27 @@ class PetriView extends HTMLElement {
             // position weight badge
             const bx = (ex + fx) / 2;
             const by = (ey + fy) / 2;
-            const badge = this._root.querySelector(`.pv-weight[data-arc="${idx}"]`);
+            const badge = this._stage.querySelector(`.pv-weight[data-arc="${idx}"]`);
             if (badge) {
                 badge.style.left = `${bx - 12}px`;
                 badge.style.top = `${by - 10}px`;
             }
         });
 
-        // optionally draw arc draft preview
+        // live arc draft preview to mouse
         if (this._arcDraft && this._arcDraft.source) {
             const srcEl = this._nodes[this._arcDraft.source];
             if (srcEl) {
                 const srcRect = srcEl.getBoundingClientRect();
-                const rootRect = this._root.getBoundingClientRect();
                 const sx = (srcRect.left + srcRect.width / 2) - rootRect.left;
                 const sy = (srcRect.top + srcRect.height / 2) - rootRect.top;
-                // draw line from source to current mouse if available (best-effort)
-                // note: for simplicity this example does not track mouse while drafting
-                ctx.setLineDash([4, 4]);
-                ctx.strokeStyle = '#666';
-                ctx.beginPath();
-                // short stub to indicate draft
-                ctx.moveTo(sx, sy);
-                ctx.lineTo(sx + 20, sy + 0);
-                ctx.stroke();
-                ctx.setLineDash([]);
+                this._ctx.setLineDash([4, 4]);
+                this._ctx.strokeStyle = '#666';
+                this._ctx.beginPath();
+                this._ctx.moveTo(sx, sy);
+                this._ctx.lineTo(this._mouse.x, this._mouse.y);
+                this._ctx.stroke();
+                this._ctx.setLineDash([]);
             }
         }
     }
@@ -949,4 +1146,3 @@ class PetriView extends HTMLElement {
 customElements.define('petri-view', PetriView);
 
 export {PetriView};
-
