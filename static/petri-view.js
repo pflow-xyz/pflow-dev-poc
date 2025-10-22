@@ -43,7 +43,11 @@ class PetriView extends HTMLElement {
         // parse model from child <script type="application/ld+json">
         this._ldScript = this.querySelector('script[type="application/ld+json"]');
         if (this._ldScript && this._ldScript.textContent) {
-            try { this._model = JSON.parse(this._ldScript.textContent); } catch { this._model = {}; }
+            try {
+                this._model = JSON.parse(this._ldScript.textContent);
+            } catch {
+                this._model = {};
+            }
         }
 
         this._normalizeModel();
@@ -71,14 +75,22 @@ class PetriView extends HTMLElement {
         this._syncLD();
     }
 
-    getModel() { return this._model; }
+    getModel() {
+        return this._model;
+    }
 
-    exportJSON() { return JSON.parse(JSON.stringify(this._model)); }
+    exportJSON() {
+        return JSON.parse(JSON.stringify(this._model));
+    }
 
-    importJSON(json) { this.setModel(json); }
+    importJSON(json) {
+        this.setModel(json);
+    }
 
     /** Write current model back into the child <script type="application/ld+json"> */
-    saveToScript() { this._syncLD(true); }
+    saveToScript() {
+        this._syncLD(true);
+    }
 
     // -------- internal: schema & helpers ------------------------------------
     _normalizeModel() {
@@ -96,8 +108,8 @@ class PetriView extends HTMLElement {
         for (const [id, p] of Object.entries(m.places)) {
             p['@type'] ||= 'Place';
             p.offset = Number(p.offset ?? 0);
-            p.initial = Array.isArray(p.initial) ? p.initial.map(v => Number(v)||0) : [Number(p.initial||0)];
-            p.capacity = Array.isArray(p.capacity) ? p.capacity.map(v => Number(v)||Infinity) : [Number(p.capacity ?? Infinity)];
+            p.initial = Array.isArray(p.initial) ? p.initial.map(v => Number(v) || 0) : [Number(p.initial || 0)];
+            p.capacity = Array.isArray(p.capacity) ? p.capacity.map(v => Number(v) || Infinity) : [Number(p.capacity ?? Infinity)];
             p.x = Number(p.x || 0);
             p.y = Number(p.y || 0);
         }
@@ -109,7 +121,7 @@ class PetriView extends HTMLElement {
         for (const a of m.arcs) {
             a['@type'] ||= 'Arrow';
             if (a.weight == null) a.weight = [1];
-            if (!Array.isArray(a.weight)) a.weight = [Number(a.weight)||1];
+            if (!Array.isArray(a.weight)) a.weight = [Number(a.weight) || 1];
             a.inhibitTransition = !!a.inhibitTransition;
         }
     }
@@ -135,7 +147,7 @@ class PetriView extends HTMLElement {
         const text = pretty ? this._stableStringify(this._model, 2) : JSON.stringify(this._model);
         if (force || this._ldScript.textContent !== text) {
             this._ldScript.textContent = text;
-            this.dispatchEvent(new CustomEvent('jsonld-updated', { detail: { json: this.exportJSON() } }));
+            this.dispatchEvent(new CustomEvent('jsonld-updated', {detail: {json: this.exportJSON()}}));
         }
     }
 
@@ -143,8 +155,8 @@ class PetriView extends HTMLElement {
         // single-color token vector -> use index 0
         const marks = {};
         for (const [pid, p] of Object.entries(this._model.places)) {
-            const sum = (Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)])
-                .reduce((s,v)=> s + (Number(v)||0), 0);
+            const sum = (Array.isArray(p.initial) ? p.initial : [Number(p.initial || 0)])
+                .reduce((s, v) => s + (Number(v) || 0), 0);
             marks[pid] = sum;
         }
         return marks;
@@ -155,8 +167,8 @@ class PetriView extends HTMLElement {
         for (const [pid, count] of Object.entries(marks)) {
             const p = this._model.places[pid];
             if (!p) continue;
-            const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)];
-            arr[0] = Math.max(0, Number(count)||0);
+            const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial || 0)];
+            arr[0] = Math.max(0, Number(count) || 0);
             p.initial = arr;
         }
         this._syncLD();
@@ -165,12 +177,17 @@ class PetriView extends HTMLElement {
     _capacityOf(pid) {
         const p = this._model.places[pid];
         if (!p) return Infinity;
-        const arr = Array.isArray(p.capacity) ? p.capacity : [Number(p.capacity||Infinity)];
+        const arr = Array.isArray(p.capacity) ? p.capacity : [Number(p.capacity || Infinity)];
         return Number.isFinite(arr[0]) ? arr[0] : Infinity;
     }
 
-    _inArcsOf(tid) { return (this._model.arcs||[]).filter(a => a.target === tid); }
-    _outArcsOf(tid) { return (this._model.arcs||[]).filter(a => a.source === tid); }
+    _inArcsOf(tid) {
+        return (this._model.arcs || []).filter(a => a.target === tid);
+    }
+
+    _outArcsOf(tid) {
+        return (this._model.arcs || []).filter(a => a.source === tid);
+    }
 
     _enabled(tid, marks) {
         const inArcs = this._inArcsOf(tid);
@@ -200,7 +217,7 @@ class PetriView extends HTMLElement {
     _fire(tid) {
         const marks = this._marking();
         if (!this._enabled(tid, marks)) {
-            this.dispatchEvent(new CustomEvent('transition-fired-blocked', {detail:{id:tid}}));
+            this.dispatchEvent(new CustomEvent('transition-fired-blocked', {detail: {id: tid}}));
             return false;
         }
         // consume
@@ -208,21 +225,23 @@ class PetriView extends HTMLElement {
             const isPlace = !!this._model.places[a.source];
             if (!isPlace) continue; // malformed arcs ignored
             const w = Number(a.weight?.[0] ?? 1);
-            if (!a.inhibitTransition) { marks[a.source] = Math.max(0, (marks[a.source]||0) - w); }
+            if (!a.inhibitTransition) {
+                marks[a.source] = Math.max(0, (marks[a.source] || 0) - w);
+            }
         }
         // produce
         for (const a of this._outArcsOf(tid)) {
             const isPlace = !!this._model.places[a.target];
             if (!isPlace) continue;
             const w = Number(a.weight?.[0] ?? 1);
-            marks[a.target] = (marks[a.target]||0) + w;
+            marks[a.target] = (marks[a.target] || 0) + w;
         }
         this._setMarking(marks); // also syncs LD
         this._renderTokens();
         this._updateTransitionStates();
         this._draw();
-        this.dispatchEvent(new CustomEvent('marking-changed', {detail:{marks}}));
-        this.dispatchEvent(new CustomEvent('transition-fired-success', {detail:{id:tid}}));
+        this.dispatchEvent(new CustomEvent('marking-changed', {detail: {marks}}));
+        this.dispatchEvent(new CustomEvent('transition-fired-success', {detail: {id: tid}}));
         return true;
     }
 
@@ -253,7 +272,7 @@ class PetriView extends HTMLElement {
             this._normalizeModel();
             this._renderUI();
             this._syncLD();
-            this.dispatchEvent(new CustomEvent('node-deleted', { detail: { id } }));
+            this.dispatchEvent(new CustomEvent('node-deleted', {detail: {id}}));
         }
     }
 
@@ -275,8 +294,8 @@ class PetriView extends HTMLElement {
             el.className = 'pv-node pv-place';
             el.dataset.id = id;
             el.style.position = 'absolute';
-            el.style.left = `${(p.x||0) - 40}px`;
-            el.style.top  = `${(p.y||0) - 40}px`;
+            el.style.left = `${(p.x || 0) - 40}px`;
+            el.style.top = `${(p.y || 0) - 40}px`;
 
             const handle = document.createElement('div');
             handle.className = 'pv-place-handle';
@@ -296,7 +315,7 @@ class PetriView extends HTMLElement {
                 ev.stopPropagation();
                 if (this._mode === 'select') return;
                 if (this._mode === 'add-token') {
-                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)];
+                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial || 0)];
                     arr[0] = (Number(arr[0]) || 0) + 1;
                     p.initial = arr;
                     this._syncLD();
@@ -310,7 +329,7 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-                    return;
+
                 }
                 // other modes ignore clicks on places
             });
@@ -321,7 +340,7 @@ class PetriView extends HTMLElement {
                 ev.preventDefault();
                 ev.stopPropagation();
                 if (this._mode === 'add-token') {
-                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial||0)];
+                    const arr = Array.isArray(p.initial) ? p.initial : [Number(p.initial || 0)];
                     arr[0] = Math.max(0, (Number(arr[0]) || 0) - 1);
                     p.initial = arr;
                     this._syncLD();
@@ -331,17 +350,17 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'add-arc') {
                     // finish or start arc as inhibitor
-                    this._arcNodeClicked(id, { inhibit: true });
+                    this._arcNodeClicked(id, {inhibit: true});
                     return;
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-                    return;
+
                 }
             });
 
             // drag
-            handle.addEventListener('pointerdown', (ev)=> this._beginDrag(ev, id, 'place'));
+            handle.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'place'));
 
             this._root.appendChild(el);
             this._nodes[id] = el;
@@ -353,8 +372,8 @@ class PetriView extends HTMLElement {
             el.className = 'pv-node pv-transition';
             el.dataset.id = id;
             el.style.position = 'absolute';
-            el.style.left = `${(t.x||0) - 15}px`;
-            el.style.top  = `${(t.y||0) - 15}px`;
+            el.style.left = `${(t.x || 0) - 15}px`;
+            el.style.top = `${(t.y || 0) - 15}px`;
 
             const label = document.createElement('div');
             label.className = 'pv-label';
@@ -365,9 +384,9 @@ class PetriView extends HTMLElement {
             el.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 if (this._mode === 'select') {
-                    this.dispatchEvent(new CustomEvent('transition-fired', {detail:{id}}));
+                    this.dispatchEvent(new CustomEvent('transition-fired', {detail: {id}}));
                     // pulse
-                    el.animate([{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}], {duration:250});
+                    el.animate([{transform: 'scale(1)'}, {transform: 'scale(1.06)'}, {transform: 'scale(1)'}], {duration: 250});
                     this._fire(id);
                     return;
                 }
@@ -377,7 +396,7 @@ class PetriView extends HTMLElement {
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
-                    return;
+
                 }
                 // other modes ignore transition clicks
             });
@@ -387,7 +406,7 @@ class PetriView extends HTMLElement {
                 ev.preventDefault();
                 ev.stopPropagation();
                 if (this._mode === 'add-arc') {
-                    this._arcNodeClicked(id, { inhibit: true });
+                    this._arcNodeClicked(id, {inhibit: true});
                 }
                 if (this._mode === 'delete') {
                     this._deleteNode(id);
@@ -395,7 +414,7 @@ class PetriView extends HTMLElement {
             });
 
             // drag
-            el.addEventListener('pointerdown', (ev)=> this._beginDrag(ev, id, 'transition'));
+            el.addEventListener('pointerdown', (ev) => this._beginDrag(ev, id, 'transition'));
 
             this._root.appendChild(el);
             this._nodes[id] = el;
@@ -424,7 +443,7 @@ class PetriView extends HTMLElement {
                 if (!a) return;
                 if (this._mode === 'add-token') {
                     try {
-                        const ans = prompt('Arc weight (positive integer)', String(Number(a.weight?.[0]||1)));
+                        const ans = prompt('Arc weight (positive integer)', String(Number(a.weight?.[0] || 1)));
                         const parsed = Number(ans);
                         if (!Number.isNaN(parsed) && parsed > 0) {
                             a.weight = [Math.floor(parsed)];
@@ -432,7 +451,8 @@ class PetriView extends HTMLElement {
                             this._renderUI();
                             this._syncLD();
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                    }
                     return;
                 }
                 if (this._mode === 'delete') {
@@ -441,7 +461,7 @@ class PetriView extends HTMLElement {
                     this._normalizeModel();
                     this._renderUI();
                     this._syncLD();
-                    return;
+
                 }
             });
 
@@ -492,11 +512,11 @@ class PetriView extends HTMLElement {
             if (!el.classList.contains('pv-place')) continue;
             el.querySelectorAll('.pv-token, .pv-token-dot').forEach(n => n.remove());
             const p = this._model.places[id];
-            const tokenCount = Array.isArray(p.initial) ? p.initial.reduce((s,v)=>s+(Number(v)||0),0) : Number(p.initial||0);
+            const tokenCount = Array.isArray(p.initial) ? p.initial.reduce((s, v) => s + (Number(v) || 0), 0) : Number(p.initial || 0);
             if (tokenCount > 1) {
                 const token = document.createElement('div');
                 token.className = 'pv-token';
-                token.textContent = ''+tokenCount;
+                token.textContent = '' + tokenCount;
                 el.appendChild(token);
             } else if (tokenCount === 1) {
                 const dot = document.createElement('div');
@@ -543,12 +563,12 @@ class PetriView extends HTMLElement {
         });
 
         const tools = [
-            {mode:'select', label:'\u26F6', title:'Select / Fire (default)'},
-            {mode:'add-place', label:'\u20DD', title:'Add Place'},
-            {mode:'add-transition', label:'\u25A2', title:'Add Transition'},
-            {mode:'add-arc', label:'\u2192', title:'Add Arc'},
-            {mode:'add-token', label:'\u2022', title:'Add / Remove Tokens'},
-            {mode:'delete', label:'\u{1F5D1}', title:'Delete element (nodes or arcs)'},
+            {mode: 'select', label: '\u26F6', title: 'Select / Fire (default)'},
+            {mode: 'add-place', label: '\u20DD', title: 'Add Place'},
+            {mode: 'add-transition', label: '\u25A2', title: 'Add Transition'},
+            {mode: 'add-arc', label: '\u2192', title: 'Add Arc'},
+            {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens'},
+            {mode: 'delete', label: '\u{1F5D1}', title: 'Delete element (nodes or arcs)'},
         ];
 
         tools.forEach(t => {
@@ -599,13 +619,13 @@ class PetriView extends HTMLElement {
 
             if (this._mode === 'add-place') {
                 const id = this._generateId('p');
-                this._model.places[id] = { '@type':'Place', x: x, y: y, initial: [0], capacity: [Infinity] };
+                this._model.places[id] = {'@type': 'Place', x: x, y: y, initial: [0], capacity: [Infinity]};
                 this._normalizeModel();
                 this._renderUI();
                 this._syncLD();
             } else if (this._mode === 'add-transition') {
                 const id = this._generateId('t');
-                this._model.transitions[id] = { '@type':'Transition', x: x, y: y };
+                this._model.transitions[id] = {'@type': 'Transition', x: x, y: y};
                 this._normalizeModel();
                 this._renderUI();
                 this._syncLD();
@@ -647,7 +667,7 @@ class PetriView extends HTMLElement {
     _arcNodeClicked(id, opts = {}) {
         if (!this._arcDraft || !this._arcDraft.source) {
             // start arc
-            this._arcDraft = { source: id };
+            this._arcDraft = {source: id};
             this._updateArcDraftHighlight();
             return;
         }
@@ -683,10 +703,11 @@ class PetriView extends HTMLElement {
             const ans = prompt('Arc weight (positive integer)', '1');
             const parsed = Number(ans);
             if (!Number.isNaN(parsed) && parsed > 0) w = Math.floor(parsed);
-        } catch (e) {}
+        } catch (e) {
+        }
         this._model.arcs = this._model.arcs || [];
         const inhibit = !!opts.inhibit;
-        this._model.arcs.push({ '@type':'Arrow', source, target, weight: [w], inhibitTransition: inhibit });
+        this._model.arcs.push({'@type': 'Arrow', source, target, weight: [w], inhibitTransition: inhibit});
         this._arcDraft = null;
         this._normalizeModel();
         this._renderUI();
@@ -758,7 +779,7 @@ class PetriView extends HTMLElement {
         const rect = el.getBoundingClientRect();
         const rootRect = this._root.getBoundingClientRect();
         const startLeft = rect.left - rootRect.left;
-        const startTop  = rect.top  - rootRect.top;
+        const startTop = rect.top - rootRect.top;
         const startX = ev.clientX;
         const startY = ev.clientY;
 
@@ -766,9 +787,9 @@ class PetriView extends HTMLElement {
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
             const newLeft = startLeft + dx;
-            const newTop  = startTop  + dy;
+            const newTop = startTop + dy;
             el.style.left = `${newLeft}px`;
-            el.style.top  = `${newTop}px`;
+            el.style.top = `${newTop}px`;
             // write back center position to model
             if (kind === 'place') {
                 const p = this._model.places[id];
@@ -787,7 +808,7 @@ class PetriView extends HTMLElement {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
             this._syncLD();
-            this.dispatchEvent(new CustomEvent('node-moved', {detail:{id, kind}}));
+            this.dispatchEvent(new CustomEvent('node-moved', {detail: {id, kind}}));
         };
 
         window.addEventListener('pointermove', move);
@@ -827,10 +848,10 @@ class PetriView extends HTMLElement {
             const srcRect = srcEl.getBoundingClientRect();
             const trgRect = trgEl.getBoundingClientRect();
 
-            const sx = (srcRect.left + srcRect.width/2) - rootRect.left;
-            const sy = (srcRect.top + srcRect.height/2) - rootRect.top;
-            const tx = (trgRect.left + trgRect.width/2) - rootRect.left;
-            const ty = (trgRect.top + trgRect.height/2) - rootRect.top;
+            const sx = (srcRect.left + srcRect.width / 2) - rootRect.left;
+            const sy = (srcRect.top + srcRect.height / 2) - rootRect.top;
+            const tx = (trgRect.left + trgRect.width / 2) - rootRect.left;
+            const ty = (trgRect.top + trgRect.height / 2) - rootRect.top;
 
             const srcIsPlace = srcEl.classList.contains('pv-place');
             const trgIsPlace = trgEl.classList.contains('pv-place');
@@ -855,7 +876,7 @@ class PetriView extends HTMLElement {
 
             if (arc.inhibitTransition) {
                 ctx.strokeStyle = '#c0392b';
-                ctx.setLineDash([6,4]);
+                ctx.setLineDash([6, 4]);
             } else {
                 ctx.strokeStyle = '#000000';
                 ctx.setLineDash([]);
@@ -871,11 +892,11 @@ class PetriView extends HTMLElement {
                 ctx.beginPath();
                 ctx.fillStyle = '#c0392b';
                 ctx.setLineDash([]);
-                ctx.arc(tpx, tpy, inhibitRadius, 0, Math.PI*2);
+                ctx.arc(tpx, tpy, inhibitRadius, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.beginPath();
                 ctx.fillStyle = '#ffffff';
-                ctx.arc(tpx, tpy, 2.5, 0, Math.PI*2);
+                ctx.arc(tpx, tpy, 2.5, 0, Math.PI * 2);
                 ctx.fill();
             } else {
                 const leftx = tpx - ux * ahSize - uy * (ahSize * 0.6);
@@ -908,16 +929,16 @@ class PetriView extends HTMLElement {
             if (srcEl) {
                 const srcRect = srcEl.getBoundingClientRect();
                 const rootRect = this._root.getBoundingClientRect();
-                const sx = (srcRect.left + srcRect.width/2) - rootRect.left;
-                const sy = (srcRect.top + srcRect.height/2) - rootRect.top;
+                const sx = (srcRect.left + srcRect.width / 2) - rootRect.left;
+                const sy = (srcRect.top + srcRect.height / 2) - rootRect.top;
                 // draw line from source to current mouse if available (best-effort)
                 // note: for simplicity this example does not track mouse while drafting
-                ctx.setLineDash([4,4]);
+                ctx.setLineDash([4, 4]);
                 ctx.strokeStyle = '#666';
                 ctx.beginPath();
                 // short stub to indicate draft
                 ctx.moveTo(sx, sy);
-                ctx.lineTo(sx+20, sy+0);
+                ctx.lineTo(sx + 20, sy + 0);
                 ctx.stroke();
                 ctx.setLineDash([]);
             }
@@ -927,5 +948,5 @@ class PetriView extends HTMLElement {
 
 customElements.define('petri-view', PetriView);
 
-export { PetriView };
+export {PetriView};
 
