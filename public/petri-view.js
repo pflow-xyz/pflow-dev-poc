@@ -75,6 +75,8 @@ class PetriView extends HTMLElement {
        });
    }
 
+   // Updated _initAceEditor and _createJsonEditor in `public/petri-view.js`
+
    async _initAceEditor() {
        if (!this._jsonEditorTextarea || this._aceEditor) return;
        const aceCdn = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.14/ace.js';
@@ -87,7 +89,7 @@ class PetriView extends HTMLElement {
        // keep textarea for integration but hide it visually
        this._jsonEditorTextarea.style.display = 'none';
 
-       // simple toolbar with Find + Download + Fullscreen (CSS-only)
+       // simple toolbar with Find + Download + Fullscreen (CSS-only) + Close
        const toolbar = document.createElement('div');
        toolbar.className = 'pv-ace-toolbar';
        this._applyStyles(toolbar, {
@@ -114,12 +116,14 @@ class PetriView extends HTMLElement {
            return b;
        };
 
-       const findBtn = makeBtn('🔍 Find', 'Open find (may require Ace searchbox extension)');
+       const findBtn = makeBtn('🔍 Find', 'Open find ( Ace searchbox )');
        const dlBtn = makeBtn('📥 Download', 'Download current JSON');
-       const fsBtn = makeBtn('⤢ Full', 'Toggle fullscreen (CSS-only)');
+       const fsBtn = makeBtn('⤢ Full', 'Toggle fullscreen');
+       const closeBtn = makeBtn('❌ Close', 'Close editor'); // moved close into ace toolbar
        toolbar.appendChild(findBtn);
        toolbar.appendChild(dlBtn);
        toolbar.appendChild(fsBtn);
+       toolbar.appendChild(closeBtn);
 
        // container for Ace
        const editorWrapper = document.createElement('div');
@@ -205,6 +209,12 @@ class PetriView extends HTMLElement {
            }
        });
 
+       // wire close button moved into ace toolbar
+       closeBtn.addEventListener('click', (e) => {
+           e.stopPropagation();
+           this._removeJsonEditor();
+       });
+
        // CSS-only fullscreen: apply fixed overlay to container (does NOT call Fullscreen API)
        const applyCssFullscreen = (container, on) => {
            if (!container) return;
@@ -269,6 +279,60 @@ class PetriView extends HTMLElement {
        this._aceEditorContainer = editorWrapper;
    }
 
+   _createJsonEditor() {
+       if (this._jsonEditor) return;
+       const container = document.createElement('div');
+       container.className = 'pv-json-editor';
+       this._applyStyles(container, {
+           position: 'fixed',
+           left: '10px',
+           right: '10px',
+           bottom: '10px',
+           height: '45%',
+           minHeight: '160px',
+           maxHeight: '70%',
+           padding: '12px',
+           background: 'rgba(250,250,250,0.98)',
+           zIndex: 100,
+           boxSizing: 'border-box',
+           display: 'flex',
+           flexDirection: 'column',
+           gap: '8px',
+           overflow: 'auto',
+           borderRadius: '8px',
+           boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+       });
+
+       // Removed the JSON Editor title and header close button per request.
+
+       const textarea = document.createElement('textarea');
+       textarea.className = 'pv-json-textarea';
+       this._applyStyles(textarea, {
+           width: '100%',
+           flex: '1 1 auto',
+           boxSizing: 'border-box',
+           resize: 'vertical',
+           fontFamily: 'monospace',
+           fontSize: '13px',
+           padding: '8px',
+           borderRadius: '6px',
+           border: '1px solid #ccc'
+       });
+       textarea.spellcheck = false;
+       container.appendChild(textarea);
+
+       const hostDoc = this.ownerDocument || document;
+       hostDoc.body.appendChild(container);
+
+       this._jsonEditor = container;
+       this._jsonEditorTextarea = textarea;
+       this._editingJson = false;
+       this._jsonEditorTimer = null;
+       this._updateJsonEditor();
+       textarea.addEventListener('input', () => this._onJsonEditorInput());
+       textarea.addEventListener('blur', () => this._onJsonEditorInput(true));
+       this._initAceEditor().catch(() => {/* ignore */});
+   }
     // ---------------- lifecycle ----------------
     connectedCallback() {
         if (this._root) return;
@@ -1549,82 +1613,6 @@ class PetriView extends HTMLElement {
         this._scaleMeter._fill.style.height = `${pct}%`;
         this._scaleMeter._thumb.style.bottom = `${pct}%`;
         this._scaleMeter._label.textContent = `${s.toFixed(2)}x`;
-    }
-
-    _createJsonEditor() {
-        if (this._jsonEditor) return;
-        const container = document.createElement('div');
-        container.className = 'pv-json-editor';
-        this._applyStyles(container, {
-            position: 'fixed',
-            left: '10px',
-            right: '10px',
-            bottom: '10px',
-            height: '45%',
-            minHeight: '160px',
-            maxHeight: '70%',
-            padding: '12px',
-            background: 'rgba(250,250,250,0.98)',
-            zIndex: 100,
-            boxSizing: 'border-box',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            overflow: 'auto',
-            borderRadius: '8px',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
-        });
-
-        const header = document.createElement('div');
-        this._applyStyles(header, {display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px'});
-        const title = document.createElement('div');
-        title.textContent = 'JSON Editor';
-        this._applyStyles(title, {fontWeight: '600', fontSize: '14px'});
-        header.appendChild(title);
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.textContent = 'Close';
-        this._applyStyles(closeBtn, {
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: '1px solid #ddd',
-            background: '#fff',
-            cursor: 'pointer'
-        });
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._removeJsonEditor();
-        });
-        header.appendChild(closeBtn);
-        container.appendChild(header);
-
-        const textarea = document.createElement('textarea');
-        textarea.className = 'pv-json-textarea';
-        this._applyStyles(textarea, {
-            width: '100%',
-            flex: '1 1 auto',
-            boxSizing: 'border-box',
-            resize: 'vertical',
-            fontFamily: 'monospace',
-            fontSize: '13px',
-            padding: '8px',
-            borderRadius: '6px',
-            border: '1px solid #ccc'
-        });
-        textarea.spellcheck = false;
-        container.appendChild(textarea);
-
-        const hostDoc = this.ownerDocument || document;
-        hostDoc.body.appendChild(container);
-
-        this._jsonEditor = container;
-        this._jsonEditorTextarea = textarea;
-        this._editingJson = false;
-        this._jsonEditorTimer = null;
-        this._updateJsonEditor();
-        textarea.addEventListener('input', () => this._onJsonEditorInput());
-        textarea.addEventListener('blur', () => this._onJsonEditorInput(true));
-        this._initAceEditor().catch(() => {/* ignore */});
     }
 
     _removeJsonEditor() {
