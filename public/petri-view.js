@@ -45,6 +45,23 @@ class PetriView extends HTMLElement {
         this._scaleMeter = null;
     }
 
+    static get observedAttributes() {
+        // include existing 'data-compact' if present; add 'data-json-editor'
+        return ['data-compact', 'data-json-editor'];
+    }
+
+    attributeChangedCallback(name, oldValue, newValue) {
+        if (name === 'data-json-editor') {
+            if (!this.isConnected) return;
+            if (newValue !== null) {
+                this._createJsonEditor();
+            } else {
+                this._removeJsonEditor();
+            }
+        }
+        // keep existing attribute handling if any (e.g. data-compact) by falling through
+    }
+
     // -------- lifecycle ------------------------------------------------------
     connectedCallback() {
         if (this._root) return;
@@ -107,6 +124,10 @@ class PetriView extends HTMLElement {
 
         // resize/draw observers
         this._createScaleMeter();
+        if (this.hasAttribute('data-json-editor')) {
+            this._createJsonEditor();
+        }
+
         this._ro = new ResizeObserver(() => this._onResize());
         this._ro.observe(this._root);
 
@@ -200,8 +221,14 @@ class PetriView extends HTMLElement {
 
     disconnectedCallback() {
         if (this._ro) this._ro.disconnect();
+        if (this._jsonEditorTimer) {
+            clearTimeout(this._jsonEditorTimer);
+            this._jsonEditorTimer = null;
+        }
+        if (this._jsonEditor) {
+            this._removeJsonEditor();
+        }
     }
-
     // -------- public API -----------------------------------------------------
     setModel(m) {
         this._model = m || {};
@@ -740,99 +767,6 @@ class PetriView extends HTMLElement {
     }
 
     // -------- edit menu -----------------------------------------------------
-    _createMenu() {
-        if (this._menu) this._menu.remove();
-        this._menu = document.createElement('div');
-        this._menu.className = 'pv-menu';
-        // basic inline styles so it's visible without external CSS
-        Object.assign(this._menu.style, {
-            position: 'absolute',
-            bottom: '10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            gap: '8px',
-            padding: '6px 8px',
-            background: 'rgba(255,255,255,0.9)',
-            borderRadius: '8px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-            zIndex: 2000,
-            alignItems: 'center',
-            userSelect: 'none',
-            fontSize: '14px'
-        });
-
-        const tools = [
-            {mode: 'select', label: '\u26F6', title: 'Select / Fire (1)'},
-            {mode: 'add-place', label: '\u20DD', title: 'Add Place (2)'},
-            {mode: 'add-transition', label: '\u25A2', title: 'Add Transition (3)'},
-            {mode: 'add-arc', label: '\u2192', title: 'Add Arc (4)'},
-            {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens (5)'},
-            {mode: 'delete', label: '\u{1F5D1}', title: 'Delete element (6)'},
-        ];
-
-        tools.forEach(t => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'pv-tool';
-            btn.textContent = t.label;
-            btn.title = t.title;
-            Object.assign(btn.style, {
-                width: '36px', height: '36px', borderRadius: '6px', border: 'none',
-                background: 'transparent', cursor: 'pointer', fontSize: '16px'
-            });
-            btn.dataset.mode = t.mode;
-            btn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                this._setMode(t.mode);
-            });
-            this._menu.appendChild(btn);
-        });
-
-        // Play / Stop button
-        const playBtn = document.createElement('button');
-        playBtn.type = 'button';
-        playBtn.className = 'pv-play';
-        playBtn.textContent = this._simRunning ? '⏸' : '▶';
-        playBtn.title = this._simRunning ? 'Stop simulation' : 'Start simulation';
-        Object.assign(playBtn.style, {
-            width: '44px', height: '36px', borderRadius: '6px', border: 'none',
-            background: 'linear-gradient(180deg,#fff,#f3f3f3)', cursor: 'pointer', fontSize: '16px'
-        });
-        playBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            this._setSimulation(!this._simRunning);
-        });
-        this._menu.appendChild(playBtn);
-        this._menuPlayBtn = playBtn;
-
-        this._root.appendChild(this._menu);
-
-        // click on empty root to add nodes when in add-place/add-transition mode
-        this._root.addEventListener('click', (ev) => {
-            // ignore clicks that hit nodes (we handle node clicks separately)
-            if (ev.target.closest('.pv-node') || ev.target.closest('.pv-weight') || ev.target.closest('.pv-menu')) return;
-            const rect = this._stage.getBoundingClientRect();
-            const x = Math.round(ev.clientX - rect.left);
-            const y = Math.round(ev.clientY - rect.top);
-
-            if (this._mode === 'add-place') {
-                const id = this._generateId('p');
-                this._model.places[id] = {'@type': 'Place', x: x, y: y, initial: [0], capacity: [Infinity]};
-                this._normalizeModel();
-                this._renderUI();
-                this._syncLD();
-                this._pushHistory();
-            } else if (this._mode === 'add-transition') {
-                const id = this._generateId('t');
-                this._model.transitions[id] = {'@type': 'Transition', x: x, y: y};
-                this._normalizeModel();
-                this._renderUI();
-                this._syncLD();
-                this._pushHistory();
-            }
-        });
-    }
 
     _setMode(mode) {
         // if simulation running, lock to 'select' (allowing only stopping via play button)
@@ -1263,18 +1197,22 @@ class PetriView extends HTMLElement {
             let found = false;
             for (const p of Object.values(places)) {
                 const x = Number(p.x || 0), y = Number(p.y || 0);
-                minX = Math.min(minX, x); minY = Math.min(minY, y);
-                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
                 found = true;
             }
             for (const t of Object.values(transitions)) {
                 const x = Number(t.x || 0), y = Number(t.y || 0);
-                minX = Math.min(minX, x); minY = Math.min(minY, y);
-                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
                 found = true;
             }
             if (!found) return null;
-            return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+            return {cx: (minX + maxX) / 2, cy: (minY + maxY) / 2};
         };
 
         // reset to 1x button
@@ -1374,8 +1312,10 @@ class PetriView extends HTMLElement {
             fontSize: '10px',
             color: '#666'
         });
-        const minEl = document.createElement('span'); minEl.textContent = `${min}x`;
-        const maxEl = document.createElement('span'); maxEl.textContent = `${max}x`;
+        const minEl = document.createElement('span');
+        minEl.textContent = `${min}x`;
+        const maxEl = document.createElement('span');
+        maxEl.textContent = `${max}x`;
         legend.appendChild(minEl);
         legend.appendChild(maxEl);
         container.appendChild(legend);
@@ -1408,9 +1348,14 @@ class PetriView extends HTMLElement {
 
         track.addEventListener('pointerup', (e) => {
             dragging = false;
-            try { track.releasePointerCapture(e.pointerId); } catch {}
+            try {
+                track.releasePointerCapture(e.pointerId);
+            } catch {
+            }
         });
-        track.addEventListener('pointercancel', () => { dragging = false; });
+        track.addEventListener('pointercancel', () => {
+            dragging = false;
+        });
 
         // attach
         this._root.appendChild(container);
@@ -1424,6 +1369,7 @@ class PetriView extends HTMLElement {
         // initial sync
         this._updateScaleMeter();
     }
+
     _updateScaleMeter() {
         if (!this._scaleMeter) return;
         const min = this._minScale || 0.5;
@@ -1435,6 +1381,270 @@ class PetriView extends HTMLElement {
         this._scaleMeter._fill.style.height = `${pct}%`;
         this._scaleMeter._thumb.style.bottom = `${pct}%`;
         this._scaleMeter._label.textContent = `${s.toFixed(2)}x`;
+    }
+
+
+    // 5) Hook editor updates into sync flow: call _updateJsonEditor() from _syncLD()
+    _syncLD(force = false) {
+        // existing autosave & sync logic...
+        try {
+            localStorage.setItem('petri-view:last', this._stableStringify(this._model));
+        } catch {}
+        if (!this._ldScript) return;
+        const pretty = !this.hasAttribute('data-compact');
+        const text = pretty ? this._stableStringify(this._model, 2) : JSON.stringify(this._model);
+        if (force || this._ldScript.textContent !== text) {
+            this._ldScript.textContent = text;
+            this.dispatchEvent(new CustomEvent('jsonld-updated', {detail: {json: this.exportJSON()}}));
+        }
+        // update editor if present and not actively editing
+        this._updateJsonEditor();
+    }
+
+    _updateJsonEditor() {
+        if (!this._jsonEditorTextarea) return;
+        // don't overwrite while the user is actively editing
+        if (this._editingJson) return;
+        const pretty = !this.hasAttribute('data-compact');
+        const text = pretty ? this._stableStringify(this._model, 2) : JSON.stringify(this._model);
+        if (this._jsonEditorTextarea.value !== text) {
+            this._jsonEditorTextarea.value = text;
+            this._jsonEditorTextarea.style.borderColor = '#ccc';
+        }
+    }
+
+// Debounced handler for textarea input. If `flush` is true, process immediately.
+    _onJsonEditorInput(flush = false) {
+        if (!this._jsonEditorTextarea) return;
+        // mark user editing so external updates don't clobber content
+        this._editingJson = true;
+        if (this._jsonEditorTimer) {
+            clearTimeout(this._jsonEditorTimer);
+            this._jsonEditorTimer = null;
+        }
+        const applyEdit = () => {
+            const txt = this._jsonEditorTextarea.value;
+            try {
+                const parsed = JSON.parse(txt);
+                // valid json: replace model and refresh UI
+                this._editingJson = false;
+                this._model = parsed || {};
+                this._normalizeModel();
+                this._renderUI();
+                this._syncLD(true);
+                this._pushHistory();
+                // clear any error styling
+                this._jsonEditorTextarea.style.borderColor = '#ccc';
+            } catch (err) {
+                // invalid json: show error style but don't apply
+                this._jsonEditorTextarea.style.borderColor = '#c0392b';
+                // keep _editingJson true so automatic updates don't overwrite
+            }
+        };
+
+        if (flush) {
+            applyEdit();
+            return;
+        }
+        // debounce (700ms)
+        this._jsonEditorTimer = setTimeout(() => {
+            this._jsonEditorTimer = null;
+            applyEdit();
+        }, 700);
+    }
+
+    _createMenu() {
+        if (this._menu) this._menu.remove();
+        this._menu = document.createElement('div');
+        this._menu.className = 'pv-menu';
+        // basic inline styles so it's visible without external CSS
+        Object.assign(this._menu.style, {
+            position: 'absolute',
+            bottom: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: '8px',
+            padding: '6px 8px',
+            background: 'rgba(255,255,255,0.9)',
+            borderRadius: '8px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+            zIndex: 1200, // lowered so the full-page editor can appear above
+            alignItems: 'center',
+            userSelect: 'none',
+            fontSize: '14px'
+        });
+
+        const tools = [
+            {mode: 'select', label: '\u26F6', title: 'Select / Fire (1)'},
+            {mode: 'add-place', label: '\u20DD', title: 'Add Place (2)'},
+            {mode: 'add-transition', label: '\u25A2', title: 'Add Transition (3)'},
+            {mode: 'add-arc', label: '\u2192', title: 'Add Arc (4)'},
+            {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens (5)'},
+            {mode: 'delete', label: '\u{1F5D1}', title: 'Delete element (6)'},
+        ];
+
+        tools.forEach(t => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'pv-tool';
+            btn.textContent = t.label;
+            btn.title = t.title;
+            Object.assign(btn.style, {
+                width: '36px', height: '36px', borderRadius: '6px', border: 'none',
+                background: 'transparent', cursor: 'pointer', fontSize: '16px'
+            });
+            btn.dataset.mode = t.mode;
+            btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._setMode(t.mode);
+            });
+            this._menu.appendChild(btn);
+        });
+
+        // Play / Stop button
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'pv-play';
+        playBtn.textContent = this._simRunning ? '⏸' : '▶';
+        playBtn.title = this._simRunning ? 'Stop simulation' : 'Start simulation';
+        Object.assign(playBtn.style, {
+            width: '44px', height: '36px', borderRadius: '6px', border: 'none',
+            background: 'linear-gradient(180deg,#fff,#f3f3f3)', cursor: 'pointer', fontSize: '16px'
+        });
+        playBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._setSimulation(!this._simRunning);
+        });
+        this._menu.appendChild(playBtn);
+        this._menuPlayBtn = playBtn;
+
+        this._root.appendChild(this._menu);
+
+        // click on empty root to add nodes when in add-place/add-transition mode
+        this._root.addEventListener('click', (ev) => {
+            // ignore clicks that hit nodes (we handle node clicks separately)
+            if (ev.target.closest('.pv-node') || ev.target.closest('.pv-weight') || ev.target.closest('.pv-menu')) return;
+            const rect = this._stage.getBoundingClientRect();
+            const x = Math.round(ev.clientX - rect.left);
+            const y = Math.round(ev.clientY - rect.top);
+
+            if (this._mode === 'add-place') {
+                const id = this._generateId('p');
+                this._model.places[id] = {'@type': 'Place', x: x, y: y, initial: [0], capacity: [Infinity]};
+                this._normalizeModel();
+                this._renderUI();
+                this._syncLD();
+                this._pushHistory();
+            } else if (this._mode === 'add-transition') {
+                const id = this._generateId('t');
+                this._model.transitions[id] = {'@type': 'Transition', x: x, y: y};
+                this._normalizeModel();
+                this._renderUI();
+                this._syncLD();
+                this._pushHistory();
+            }
+        });
+    }
+
+    _createJsonEditor() {
+        if (this._jsonEditor) return; // already created
+
+        // Full-viewport fixed container appended to body so it can truly occupy the entire page
+        const container = document.createElement('div');
+        container.className = 'pv-json-editor';
+        Object.assign(container.style, {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            right: '0',
+            bottom: '0',
+            padding: '12px',
+            background: 'rgba(250,250,250,0.98)',
+            zIndex: 5000, // ensure it's above UI chrome (menu, scale meter, ...)
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            overflow: 'auto'
+        });
+
+        // header with close button
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '8px'
+        });
+        const title = document.createElement('div');
+        title.textContent = 'JSON Editor';
+        Object.assign(title.style, {fontWeight: '600', fontSize: '14px'});
+        header.appendChild(title);
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = 'Close';
+        Object.assign(closeBtn.style, {
+            padding: '6px 10px',
+            borderRadius: '6px',
+            border: '1px solid #ddd',
+            background: '#fff',
+            cursor: 'pointer'
+        });
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._removeJsonEditor();
+        });
+        header.appendChild(closeBtn);
+        container.appendChild(header);
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'pv-json-textarea';
+        Object.assign(textarea.style, {
+            width: '100%',
+            flex: '1 1 auto',
+            boxSizing: 'border-box',
+            resize: 'vertical',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            padding: '8px',
+            borderRadius: '6px',
+            border: '1px solid #ccc'
+        });
+        textarea.spellcheck = false;
+
+        container.appendChild(textarea);
+
+        // append to body so editor truly covers the page (not just root)
+        document.body.appendChild(container);
+
+        this._jsonEditor = container;
+        this._jsonEditorTextarea = textarea;
+        this._editingJson = false;
+        this._jsonEditorTimer = null;
+
+        // initialize editor content
+        this._updateJsonEditor();
+
+        // input handler with debounce
+        textarea.addEventListener('input', () => this._onJsonEditorInput());
+        textarea.addEventListener('blur', () => this._onJsonEditorInput(true));
+    }
+
+    _removeJsonEditor() {
+        if (!this._jsonEditor) return;
+        // clear debounce timer
+        if (this._jsonEditorTimer) {
+            clearTimeout(this._jsonEditorTimer);
+            this._jsonEditorTimer = null;
+        }
+        // remove element from DOM (may be appended to body)
+        try {
+            this._jsonEditor.remove();
+        } catch {}
+        this._jsonEditor = null;
+        this._jsonEditorTextarea = null;
+        this._editingJson = false;
     }
 }
 
