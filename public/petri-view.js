@@ -719,7 +719,7 @@ class PetriView extends HTMLElement {
 
         const tools = [
             {mode: 'select', label: '\u26F6', title: 'Select / Fire (1)'},
-            {mode: 'add-place', label: '\u20DD', title: 'Add Place (2)'},
+            {mode: 'add-place', label: '\u25EF', title: 'Add Place (2)'},
             {mode: 'add-transition', label: '\u25A2', title: 'Add Transition (3)'},
             {mode: 'add-arc', label: '\u2192', title: 'Add Arc (4)'},
             {mode: 'add-token', label: '\u2022', title: 'Add / Remove Tokens (5)'},
@@ -1523,10 +1523,21 @@ class PetriView extends HTMLElement {
         // panning pointer down/move/up
         this._root.addEventListener('pointerdown', (e) => {
             if (this._mode === 'add-token') return;
-            const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey;
+
+            // Determine if the pointer is on a non-interactive background area.
+            // If so, allow left-button drag to pan even without modifiers.
+            const interactiveSelector = '.pv-node, .pv-weight, .pv-menu, .pv-json-editor, .pv-scale-meter, .pv-json-textarea, .pv-tool, .pv-play';
+            const clickedInteractive = !!e.target.closest && e.target.closest(interactiveSelector);
+            const leftButton = e.button === 0;
+
+            const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey || (leftButton && !clickedInteractive);
+
             if (isPan) {
                 this._panning = {x: e.clientX, y: e.clientY, tx: this._view.tx, ty: this._view.ty};
-                this._root.setPointerCapture(e.pointerId);
+                try {
+                    this._root.setPointerCapture(e.pointerId);
+                } catch {
+                }
             }
         });
         this._root.addEventListener('pointermove', (e) => {
