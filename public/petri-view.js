@@ -976,21 +976,30 @@ class PetriView extends HTMLElement {
         if (!el) return;
         el.setPointerCapture(ev.pointerId);
 
-        const rect = el.getBoundingClientRect();
-        const stageRect = this._stage.getBoundingClientRect();
-        const startLeft = rect.left - stageRect.left;
-        const startTop = rect.top - stageRect.top;
+        // read start position in stage-local coordinates (style.left/top)
+        const startLeft = parseFloat(el.style.left) || 0;
+        const startTop = parseFloat(el.style.top) || 0;
         const startX = ev.clientX;
         const startY = ev.clientY;
+        const scale = this._view.scale || 1;
+
+        // track current local left/top so 'up' can use final values
+        let currentLeft = startLeft;
+        let currentTop = startTop;
 
         const move = (e) => {
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            const newLeft = startLeft + dx;
-            const newTop = startTop + dy;
+            // convert screen delta to stage-local delta by dividing by scale
+            const dxLocal = (e.clientX - startX) / scale;
+            const dyLocal = (e.clientY - startY) / scale;
+            const newLeft = startLeft + dxLocal;
+            const newTop = startTop + dyLocal;
+            currentLeft = newLeft;
+            currentTop = newTop;
+
             el.style.left = `${newLeft}px`;
             el.style.top = `${newTop}px`;
-            // write back center position to model
+
+            // write back center position to model (stage-local coordinates)
             if (kind === 'place') {
                 const p = this._model.places[id];
                 p.x = Math.round(newLeft + 40);
@@ -1004,19 +1013,20 @@ class PetriView extends HTMLElement {
         };
 
         const up = (e) => {
+            // release capture from the original pointerdown event
             el.releasePointerCapture(ev.pointerId);
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
 
-            // snap-to-grid
+            // snap-to-grid using final stage-local coords
             if (kind === 'place') {
                 const p = this._model.places[id];
-                p.x = this._snap(p.x);
-                p.y = this._snap(p.y);
+                p.x = this._snap(Math.round(currentLeft + 40));
+                p.y = this._snap(Math.round(currentTop + 40));
             } else {
                 const t = this._model.transitions[id];
-                t.x = this._snap(t.x);
-                t.y = this._snap(t.y);
+                t.x = this._snap(Math.round(currentLeft + 15));
+                t.y = this._snap(Math.round(currentTop + 15));
             }
             this._renderUI(); // repositions badges nicely
             this._syncLD();
@@ -1027,7 +1037,6 @@ class PetriView extends HTMLElement {
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
     }
-
     // -------- drawing (arcs + badges) ---------------------------------------
     _onResize() {
         const rect = this._root.getBoundingClientRect();
@@ -1047,6 +1056,7 @@ class PetriView extends HTMLElement {
         this._stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
     }
 
+// javascript
     _draw() {
         const ctx = this._ctx;
         const rootRect = this._root.getBoundingClientRect();
@@ -1058,6 +1068,10 @@ class PetriView extends HTMLElement {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
+        const scale = this._view.scale || 1;
+        const viewTx = this._view.tx || 0;
+        const viewTy = this._view.ty || 0;
+
         const arcs = this._model.arcs || [];
         arcs.forEach((arc, idx) => {
             const srcEl = this._nodes[arc.source];
@@ -1067,10 +1081,17 @@ class PetriView extends HTMLElement {
             const srcRect = srcEl.getBoundingClientRect();
             const trgRect = trgEl.getBoundingClientRect();
 
-            const sx = (srcRect.left + srcRect.width / 2) - rootRect.left;
-            const sy = (srcRect.top + srcRect.height / 2) - rootRect.top;
-            const tx = (trgRect.left + trgRect.width / 2) - rootRect.left;
-            const ty = (trgRect.top + trgRect.height / 2) - rootRect.top;
+            // screen coordinates relative to root
+            const sxScreen = (srcRect.left + srcRect.width / 2) - rootRect.left;
+            const syScreen = (srcRect.top + srcRect.height / 2) - rootRect.top;
+            const txScreen = (trgRect.left + trgRect.width / 2) - rootRect.left;
+            const tyScreen = (trgRect.top + trgRect.height / 2) - rootRect.top;
+
+            // convert screen coords -> stage-local (canvas) coords by inverting the CSS transform
+            const sx = (sxScreen - viewTx) / scale;
+            const sy = (syScreen - viewTy) / scale;
+            const tx = (txScreen - viewTx) / scale;
+            const ty = (tyScreen - viewTy) / scale;
 
             const srcIsPlace = srcEl.classList.contains('pv-place');
             const trgIsPlace = trgEl.classList.contains('pv-place');
@@ -1132,7 +1153,7 @@ class PetriView extends HTMLElement {
                 ctx.fill();
             }
 
-            // position weight badge
+            // position weight badge in stage-local coordinates
             const bx = (ex + fx) / 2;
             const by = (ey + fy) / 2;
             const badge = this._stage.querySelector(`.pv-weight[data-arc="${idx}"]`);
@@ -1142,20 +1163,26 @@ class PetriView extends HTMLElement {
             }
         });
 
-        // live arc draft preview to mouse
+        // live arc draft preview to mouse (convert mouse pos to stage-local)
         if (this._arcDraft && this._arcDraft.source) {
             const srcEl = this._nodes[this._arcDraft.source];
             if (srcEl) {
                 const srcRect = srcEl.getBoundingClientRect();
-                const sx = (srcRect.left + srcRect.width / 2) - rootRect.left;
-                const sy = (srcRect.top + srcRect.height / 2) - rootRect.top;
-                this._ctx.setLineDash([4, 4]);
-                this._ctx.strokeStyle = '#666';
-                this._ctx.beginPath();
-                this._ctx.moveTo(sx, sy);
-                this._ctx.lineTo(this._mouse.x, this._mouse.y);
-                this._ctx.stroke();
-                this._ctx.setLineDash([]);
+                const sxScreen = (srcRect.left + srcRect.width / 2) - rootRect.left;
+                const syScreen = (srcRect.top + srcRect.height / 2) - rootRect.top;
+                const sx = (sxScreen - viewTx) / scale;
+                const sy = (syScreen - viewTy) / scale;
+
+                const mx = (this._mouse.x - viewTx) / scale;
+                const my = (this._mouse.y - viewTy) / scale;
+
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = '#666';
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(mx, my);
+                ctx.stroke();
+                ctx.setLineDash([]);
             }
         }
     }
