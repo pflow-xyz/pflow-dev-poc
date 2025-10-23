@@ -161,6 +161,56 @@ class PetriView extends HTMLElement {
         return id;
     }
 
+    _capacityOf(pid) {
+        const p = this._model.places[pid];
+        if (!p) return Infinity;
+        const arr = Array.isArray(p.capacity) ? p.capacity : [p.capacity];
+        const v = arr[0];
+        if (v === Infinity) return Infinity;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : Infinity;
+    }
+
+    _isCapacityPath(pathArr) {
+        // crude but effective: ...places.<id>.capacity[...]
+        const i = pathArr.indexOf('places');
+        return i >= 0 && pathArr[i + 2] === 'capacity';
+    }
+
+    _stableStringify(obj, space = 2) {
+        const seen = new WeakSet();
+        const path = [];
+
+        const sortObj = (o) => {
+            if (o === null || typeof o !== 'object') return o;
+            if (seen.has(o)) return undefined;
+            seen.add(o);
+            if (Array.isArray(o)) {
+                return o.map((v, idx) => {
+                    path.push(String(idx));
+                    const out = sortObj(v);
+                    path.pop();
+                    // convert Infinity in capacity arrays to null for JSON-LD friendliness
+                    if (out === Infinity && this._isCapacityPath(path)) return null;
+                    return out;
+                });
+            }
+            const out = {};
+            for (const k of Object.keys(o).sort()) {
+                path.push(k);
+                let v = sortObj(o[k]);
+                // If Infinity sits directly in a capacity prop
+                if (v === Infinity && this._isCapacityPath(path)) v = null;
+                out[k] = v;
+                path.pop();
+            }
+            return out;
+        };
+
+        return JSON.stringify(sortObj(obj), null, space);
+    }
+
+
     // ---------------- model normalization ----------------
     _normalizeModel() {
         const m = this._model || (this._model = {});
@@ -174,12 +224,29 @@ class PetriView extends HTMLElement {
 
         for (const [id, p] of Object.entries(m.places)) {
             p['@type'] ||= 'Place';
-            p.offset = Number(p.offset ?? 0);
-            p.initial = Array.isArray(p.initial) ? p.initial.map(v => Number(v) || 0) : [Number(p.initial || 0)];
-            p.capacity = Array.isArray(p.capacity) ? p.capacity.map(v => Number(v) || Infinity) : [Number(p.capacity ?? Infinity)];
-            p.x = Number(p.x || 0);
-            p.y = Number(p.y || 0);
+
+            // offsets/coords
+            p.offset = Number.isFinite(p.offset) ? Number(p.offset) : Number(p.offset ?? 0);
+            p.x = Number.isFinite(p.x) ? Number(p.x) : Number(p.x || 0);
+            p.y = Number.isFinite(p.y) ? Number(p.y) : Number(p.y || 0);
+
+            // initial: allow 0, coerce safely
+            if (!Array.isArray(p.initial)) p.initial = [p.initial];
+            p.initial = p.initial.map(v => {
+                const n = (typeof v === 'string' && v.trim() === '') ? 0 : Number(v);
+                return Number.isFinite(n) ? n : 0;
+            });
+
+            // capacity: null/undefined => Infinity (unbounded). Preserve 0.
+            if (!Array.isArray(p.capacity)) p.capacity = [p.capacity];
+            p.capacity = p.capacity.map(v => {
+                if (v === null || v === undefined) return Infinity; // explicit unbounded
+                const n = Number(v);
+                return Number.isFinite(n) ? n : Infinity;
+            });
         }
+
+
         for (const [id, t] of Object.entries(m.transitions)) {
             t['@type'] ||= 'Transition';
             t.x = Number(t.x || 0);
@@ -200,7 +267,7 @@ class PetriView extends HTMLElement {
             return;
         }
         try {
-            const saved = localStorage.getItem('petri-view:last');
+            const saved = localStorage.getItem(this._getStorageKey());
             if (saved) this._model = JSON.parse(saved);
         } catch {
         }
@@ -209,7 +276,7 @@ class PetriView extends HTMLElement {
     // ---------------- persistence & history ----------------
     _syncLD(force = false) {
         try {
-            localStorage.setItem('petri-view:last', this._stableStringify(this._model));
+            localStorage.setItem(this._getStorageKey(), this._stableStringify(this._model));
         } catch {
         }
 
@@ -236,6 +303,7 @@ class PetriView extends HTMLElement {
         const last = this._history[this._history.length - 1];
         if (snap !== last) {
             this._history.push(snap);
+            if (this._history.length > 2000) this._history.shift(); // cap
             this._redo.length = 0;
         }
     }
@@ -531,20 +599,21 @@ class PetriView extends HTMLElement {
     }
 
     _onTransitionClick(id, ev) {
-        if (this._mode === 'select') {
+        // Only allow firing when simulation (play) is running
+        if (this._simRunning) {
             const el = this._nodes[id];
             this.dispatchEvent(new CustomEvent('transition-fired', {detail: {id}}));
             el.animate([{transform: 'scale(1)'}, {transform: 'scale(1.06)'}, {transform: 'scale(1)'}], {duration: 250});
             this._fire(id);
             return;
         }
+        // Preserve other behaviors (arc creation / deletion) regardless of simulation state
         if (this._mode === 'add-arc') {
             this._arcNodeClicked(id);
             return;
         }
         if (this._mode === 'delete') {
             this._deleteNode(id);
-
         }
     }
 
@@ -563,9 +632,21 @@ class PetriView extends HTMLElement {
         const i = Number(badge.dataset.arc);
         const a = this._model.arcs && this._model.arcs[i];
         if (!a) return;
-        if (this._mode === 'add-token') {
+
+        if (this._mode === 'delete') {
+            this._model.arcs = (this._model.arcs || []).filter((_, j) => j !== i);
+            this._normalizeModel();
+            this._renderUI();
+            this._syncLD();
+            this._pushHistory();
+            return;
+        }
+
+        // Allow editing in select and add-token modes
+        if (this._mode === 'select' || this._mode === 'add-token') {
             try {
-                const ans = prompt('Arc weight (positive integer)', String(Number(a.weight?.[0] || 1)));
+                const cur = Number(a.weight?.[0] || 1);
+                const ans = prompt('Arc weight (positive integer)', String(cur));
                 const parsed = Number(ans);
                 if (!Number.isNaN(parsed) && parsed > 0) {
                     a.weight = [Math.floor(parsed)];
@@ -576,14 +657,6 @@ class PetriView extends HTMLElement {
                 }
             } catch {
             }
-            return;
-        }
-        if (this._mode === 'delete') {
-            this._model.arcs = (this._model.arcs || []).filter((_, j) => j !== i);
-            this._normalizeModel();
-            this._renderUI();
-            this._syncLD();
-            this._pushHistory();
         }
     }
 
@@ -785,6 +858,9 @@ class PetriView extends HTMLElement {
     }
 
     _beginDrag(ev, id, kind) {
+        // Prevent dragging while simulation (play) is running
+        if (this._simRunning) return;
+
         ev.preventDefault();
         const el = this._nodes[id];
         if (!el) return;
@@ -1268,7 +1344,7 @@ class PetriView extends HTMLElement {
             position: 'fixed',
             left: '10px',
             right: '10px',
-            bottom: '10px',
+            bottom: '5px',
             height: '40%',
             minHeight: '160px',
             maxHeight: '70%',
@@ -1467,6 +1543,12 @@ class PetriView extends HTMLElement {
             }
         });
     }
+
+    _getStorageKey() {
+        const id = this.getAttribute('id') || this.getAttribute('name') || '';
+        return `petri-view:last${id ? ':' + id : ''}`;
+    }
+
 }
 
 customElements.define('petri-view', PetriView);
