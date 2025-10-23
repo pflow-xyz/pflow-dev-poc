@@ -980,6 +980,7 @@ class PetriView extends HTMLElement {
         return Math.round(n / g) * g;
     }
 
+// javascript
     _beginDrag(ev, id, kind) {
         ev.preventDefault();
         const el = this._nodes[id];
@@ -993,6 +994,9 @@ class PetriView extends HTMLElement {
         const startY = ev.clientY;
         const scale = this._view.scale || 1;
 
+        // offsets (center relative to top-left of element)
+        const offset = kind === 'place' ? 40 : 15;
+
         // track current local left/top so 'up' can use final values
         let currentLeft = startLeft;
         let currentTop = startTop;
@@ -1001,10 +1005,22 @@ class PetriView extends HTMLElement {
             // convert screen delta to stage-local delta by dividing by scale
             const dxLocal = (e.clientX - startX) / scale;
             const dyLocal = (e.clientY - startY) / scale;
-            const newLeft = startLeft + dxLocal;
-            const newTop = startTop + dyLocal;
+            let newLeft = startLeft + dxLocal;
+            let newTop = startTop + dyLocal;
             currentLeft = newLeft;
             currentTop = newTop;
+
+            // clamp so center (newLeft + offset) and (newTop + offset) are not negative
+            const minLeft = -offset;
+            const minTop = -offset;
+            if (newLeft < minLeft) {
+                newLeft = minLeft;
+                currentLeft = newLeft;
+            }
+            if (newTop < minTop) {
+                newTop = minTop;
+                currentTop = newTop;
+            }
 
             el.style.left = `${newLeft}px`;
             el.style.top = `${newTop}px`;
@@ -1012,12 +1028,12 @@ class PetriView extends HTMLElement {
             // write back center position to model (stage-local coordinates)
             if (kind === 'place') {
                 const p = this._model.places[id];
-                p.x = Math.round(newLeft + 40);
-                p.y = Math.round(newTop + 40);
+                p.x = Math.round(newLeft + offset);
+                p.y = Math.round(newTop + offset);
             } else {
                 const t = this._model.transitions[id];
-                t.x = Math.round(newLeft + 15);
-                t.y = Math.round(newTop + 15);
+                t.x = Math.round(newLeft + offset);
+                t.y = Math.round(newTop + offset);
             }
             this._draw();
         };
@@ -1028,15 +1044,19 @@ class PetriView extends HTMLElement {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
 
-            // snap-to-grid using final stage-local coords
+            // snap-to-grid using final stage-local coords, ensure center >= 0
             if (kind === 'place') {
                 const p = this._model.places[id];
-                p.x = this._snap(Math.round(currentLeft + 40));
-                p.y = this._snap(Math.round(currentTop + 40));
+                const centerX = Math.max(0, Math.round(currentLeft + offset));
+                const centerY = Math.max(0, Math.round(currentTop + offset));
+                p.x = this._snap(centerX);
+                p.y = this._snap(centerY);
             } else {
                 const t = this._model.transitions[id];
-                t.x = this._snap(Math.round(currentLeft + 15));
-                t.y = this._snap(Math.round(currentTop + 15));
+                const centerX = Math.max(0, Math.round(currentLeft + offset));
+                const centerY = Math.max(0, Math.round(currentTop + offset));
+                t.x = this._snap(centerX);
+                t.y = this._snap(centerY);
             }
             this._renderUI(); // repositions badges nicely
             this._syncLD();
@@ -1046,8 +1066,7 @@ class PetriView extends HTMLElement {
 
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
-    }
-    // -------- drawing (arcs + badges) ---------------------------------------
+    }    // -------- drawing (arcs + badges) ---------------------------------------
     _onResize() {
         const rect = this._root.getBoundingClientRect();
         const w = Math.max(300, Math.floor(rect.width));
@@ -1294,6 +1313,7 @@ class PetriView extends HTMLElement {
                 }
             }
 
+            this._initialView = {...this._view}; // save for reset
             this._applyViewTransform();
             this._draw();
             this._updateScaleMeter();
