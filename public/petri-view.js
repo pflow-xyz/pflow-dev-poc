@@ -148,15 +148,28 @@ class PetriView extends HTMLElement {
        const editor = window.ace.edit(editorDiv);
        editor.setTheme('ace/theme/textmate');
        editor.session.setMode('ace/mode/json');
-       editor.setOptions({
+
+       // base options
+       const opts = {
            fontSize: '13px',
            showPrintMargin: false,
            wrap: true,
-           useWorker: true,
-           enableBasicAutocompletion: false,
-           enableLiveAutocompletion: false,
-           enableSnippets: false
-       });
+           useWorker: true
+       };
+
+       // enable autocompletion/snippets only if language_tools is present
+       try {
+           if (window.ace && ace.require && ace.require('ace/ext/language_tools')) {
+               // only set these flags when the language_tools extension is available
+               opts.enableBasicAutocompletion = false;
+               opts.enableLiveAutocompletion = false;
+               opts.enableSnippets = false;
+           }
+       } catch {
+           // language_tools not available — skip those options to avoid warnings
+       }
+
+       editor.setOptions(opts);
 
        // initial content
        editor.session.setValue(this._jsonEditorTextarea.value || '');
@@ -1546,8 +1559,8 @@ class PetriView extends HTMLElement {
             position: 'fixed',
             left: '10px',
             right: '10px',
-            bottom: '5px',
-            height: '40%',
+            bottom: '10px',
+            height: '45%',
             minHeight: '160px',
             maxHeight: '70%',
             padding: '12px',
