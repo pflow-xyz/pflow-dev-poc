@@ -13,6 +13,7 @@ class PetriView extends HTMLElement {
         this._ro = null;
         this._dpr = window.devicePixelRatio || 1;
 
+
         this._drag = null; // {id, kind:"place|transition", dx, dy}
         this._ldScript = null; // <script type="application/ld+json"> to keep in sync
 
@@ -37,6 +38,11 @@ class PetriView extends HTMLElement {
         // history (undo/redo)
         this._history = [];
         this._redo = [];
+
+        // scale meter
+        this._minScale = 0.5;
+        this._maxScale = 2.5;
+        this._scaleMeter = null;
     }
 
     // -------- lifecycle ------------------------------------------------------
@@ -93,14 +99,18 @@ class PetriView extends HTMLElement {
         this._normalizeModel();
         this._renderUI();
         this._applyViewTransform();
+        this._initialView = {...this._view}; // save for reset
         this._pushHistory(true); // seed history
 
         // create edit menu
         this._createMenu();
 
         // resize/draw observers
+        this._createScaleMeter();
         this._ro = new ResizeObserver(() => this._onResize());
         this._ro.observe(this._root);
+
+
         // redraw on font load/paint
         window.addEventListener('load', () => this._onResize());
 
@@ -1054,6 +1064,8 @@ class PetriView extends HTMLElement {
         if (!this._stage) return;
         const {tx, ty, scale} = this._view;
         this._stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        this._updateScaleMeter();
+
     }
 
 // javascript
@@ -1185,6 +1197,224 @@ class PetriView extends HTMLElement {
                 ctx.setLineDash([]);
             }
         }
+    }
+
+    _createScaleMeter() {
+        // remove old if any
+        if (this._scaleMeter) this._scaleMeter.remove();
+        const min = this._minScale || 0.5;
+        const max = this._maxScale || 2.5;
+
+        const container = document.createElement('div');
+        container.className = 'pv-scale-meter';
+        Object.assign(container.style, {
+            position: 'absolute',
+            right: '10px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '52px',
+            height: '160px',
+            padding: '8px',
+            background: 'rgba(255,255,255,0.94)',
+            borderRadius: '10px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            zIndex: 3000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '8px',
+            userSelect: 'none',
+            fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial'
+        });
+
+        const label = document.createElement('div');
+        label.className = 'pv-scale-label';
+        Object.assign(label.style, {
+            fontSize: '12px',
+            color: '#333',
+            lineHeight: '1'
+        });
+        container.appendChild(label);
+
+        // helper: compute content center in stage-local coordinates
+        const computeContentCenter = () => {
+            const places = this._model?.places || {};
+            const transitions = this._model?.transitions || {};
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            let found = false;
+            for (const p of Object.values(places)) {
+                const x = Number(p.x || 0), y = Number(p.y || 0);
+                minX = Math.min(minX, x); minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                found = true;
+            }
+            for (const t of Object.values(transitions)) {
+                const x = Number(t.x || 0), y = Number(t.y || 0);
+                minX = Math.min(minX, x); minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                found = true;
+            }
+            if (!found) return null;
+            return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+        };
+
+        // reset to 1x button
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'pv-scale-reset';
+        resetBtn.type = 'button';
+        resetBtn.textContent = '1x';
+        Object.assign(resetBtn.style, {
+            width: '36px',
+            height: '20px',
+            borderRadius: '6px',
+            border: '1px solid #ddd',
+            background: '#fff',
+            cursor: 'pointer',
+            fontSize: '12px',
+            color: '#333',
+            marginBottom: '4px',
+            padding: '0'
+        });
+        resetBtn.title = 'Reset scale to 1x';
+        resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // reset scale to exactly 1
+            this._view.scale = 1;
+
+            // restore original layout if we've recorded it; otherwise keep previous centering fallback
+            const rootRect = this._root?.getBoundingClientRect();
+            if (this._initialView && typeof this._initialView.tx === 'number' && typeof this._initialView.ty === 'number') {
+                this._view.tx = this._initialView.tx;
+                this._view.ty = this._initialView.ty;
+            } else {
+                // fallback: try to center stage origin in viewport at scale 1
+                if (rootRect) {
+                    this._view.tx = Math.round(rootRect.width / 2 - 0 * this._view.scale);
+                    this._view.ty = Math.round(rootRect.height / 2 - 0 * this._view.scale);
+                }
+            }
+
+            this._applyViewTransform();
+            this._draw();
+            this._updateScaleMeter();
+        });
+        container.appendChild(resetBtn);
+
+        const track = document.createElement('div');
+        track.className = 'pv-scale-track';
+        Object.assign(track.style, {
+            position: 'relative',
+            width: '10px',
+            flex: '1 1 auto',
+            height: '100%',
+            background: '#eee',
+            borderRadius: '6px',
+            overflow: 'hidden',
+            alignSelf: 'center'
+        });
+
+        const fill = document.createElement('div');
+        fill.className = 'pv-scale-fill';
+        Object.assign(fill.style, {
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            bottom: '0',
+            width: '10px',
+            height: '0%',
+            background: 'linear-gradient(180deg,#4A90E2,#2A6FB8)',
+            borderRadius: '6px'
+        });
+        track.appendChild(fill);
+
+        const thumb = document.createElement('div');
+        thumb.className = 'pv-scale-thumb';
+        Object.assign(thumb.style, {
+            position: 'absolute',
+            left: '50%',
+            transform: 'translate(-50%, 50%)',
+            bottom: '0%',
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: '#fff',
+            border: '2px solid #2a6fb8',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+        });
+        track.appendChild(thumb);
+
+        container.appendChild(track);
+
+        // a tiny legend with min/max
+        const legend = document.createElement('div');
+        Object.assign(legend.style, {
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: '10px',
+            color: '#666'
+        });
+        const minEl = document.createElement('span'); minEl.textContent = `${min}x`;
+        const maxEl = document.createElement('span'); maxEl.textContent = `${max}x`;
+        legend.appendChild(minEl);
+        legend.appendChild(maxEl);
+        container.appendChild(legend);
+
+        // interaction: click/drag to change scale
+        let dragging = false;
+        const setScaleFromClientY = (clientY) => {
+            const rect = track.getBoundingClientRect();
+            let pos = (rect.bottom - clientY) / rect.height; // 0..1 (bottom..top)
+            pos = Math.max(0, Math.min(1, pos));
+            const s = min + pos * (max - min);
+            // quantize to 2 decimals
+            this._view.scale = Math.round(s * 100) / 100;
+            this._applyViewTransform();
+            this._draw();
+            this._updateScaleMeter();
+        };
+
+        track.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            dragging = true;
+            track.setPointerCapture(e.pointerId);
+            setScaleFromClientY(e.clientY);
+        });
+
+        track.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            setScaleFromClientY(e.clientY);
+        });
+
+        track.addEventListener('pointerup', (e) => {
+            dragging = false;
+            try { track.releasePointerCapture(e.pointerId); } catch {}
+        });
+        track.addEventListener('pointercancel', () => { dragging = false; });
+
+        // attach
+        this._root.appendChild(container);
+        this._scaleMeter = container;
+        // store references for updates
+        this._scaleMeter._label = label;
+        this._scaleMeter._fill = fill;
+        this._scaleMeter._thumb = thumb;
+        this._scaleMeter._track = track;
+
+        // initial sync
+        this._updateScaleMeter();
+    }
+    _updateScaleMeter() {
+        if (!this._scaleMeter) return;
+        const min = this._minScale || 0.5;
+        const max = this._maxScale || 2.5;
+        const s = (this._view && this._view.scale) ? Number(this._view.scale) : 1;
+        const frac = Math.max(0, Math.min(1, (s - min) / (max - min)));
+        const pct = Math.round(frac * 100);
+        // update visuals
+        this._scaleMeter._fill.style.height = `${pct}%`;
+        this._scaleMeter._thumb.style.bottom = `${pct}%`;
+        this._scaleMeter._label.textContent = `${s.toFixed(2)}x`;
     }
 }
 
