@@ -1547,26 +1547,31 @@ class PetriView extends HTMLElement {
         });
     }
 
+    // javascript
     _createJsonEditor() {
         if (this._jsonEditor) return; // already created
 
-        // Full-viewport fixed container appended to body so it can truly occupy the entire page
+        // Container appended to the page body and fixed to viewport bottom
         const container = document.createElement('div');
         container.className = 'pv-json-editor';
         Object.assign(container.style, {
-            position: 'fixed',
-            top: '0',
-            left: '0',
-            right: '0',
-            bottom: '0',
+            position: 'fixed',       // fixed to viewport so it's at bottom of page
+            left: '10px',
+            right: '10px',
+            bottom: '10px',          // sits at the bottom of the page
+            height: '40%',           // reasonable default height
+            minHeight: '160px',      // ensure some minimum height
+            maxHeight: '70%',
             padding: '12px',
             background: 'rgba(250,250,250,0.98)',
-            zIndex: 5000, // ensure it's above UI chrome (menu, scale meter, ...)
+            zIndex: 100,             // lower than menu (menu uses 1200) so menu stays above
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
-            overflow: 'auto'
+            overflow: 'auto',
+            borderRadius: '8px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
         });
 
         // header with close button
@@ -1615,8 +1620,9 @@ class PetriView extends HTMLElement {
 
         container.appendChild(textarea);
 
-        // append to body so editor truly covers the page (not just root)
-        document.body.appendChild(container);
+        // append to document body so editor is outside the petri root/stage and at page bottom
+        const hostDoc = this.ownerDocument || document;
+        hostDoc.body.appendChild(container);
 
         this._jsonEditor = container;
         this._jsonEditorTextarea = textarea;
