@@ -1717,18 +1717,27 @@ class PetriView extends HTMLElement {
             this._draw();
         }, {passive: false});
 
-        // keyboard
         window.addEventListener('keydown', (e) => {
             if (e.key === ' ') this._spaceDown = true;
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
                 e.preventDefault();
                 if (e.shiftKey) this._redoAction(); else this._undoAction();
             }
-            if (e.key === 'Escape' && this._arcDraft) {
-                this._arcDraft = null;
-                this._updateArcDraftHighlight();
-                this._draw();
+
+            // If Esc is pressed, first stop the simulation (if running),
+            // otherwise fall back to cancelling arc draft.
+            if (e.key === 'Escape') {
+                if (this._simRunning) {
+                    this._setSimulation(false);
+                    return;
+                }
+                if (this._arcDraft) {
+                    this._arcDraft = null;
+                    this._updateArcDraftHighlight();
+                    this._draw();
+                }
             }
+
             const map = {
                 '1': 'select',
                 '2': 'add-place',
