@@ -1188,7 +1188,17 @@ class PetriView extends HTMLElement {
         ev.preventDefault();
         const el = this._nodes[id];
         if (!el) return;
-        el.setPointerCapture(ev.pointerId);
+        try {
+            el.setPointerCapture(ev.pointerId);
+        } catch {
+        }
+
+        // set grabbing cursor during element drag (apply to element and body)
+        try {
+            el.style.cursor = 'grabbing';
+            document.body.style.cursor = 'grabbing';
+        } catch { /* ignore */
+        }
 
         const startLeft = parseFloat(el.style.left) || 0;
         const startTop = parseFloat(el.style.top) || 0;
@@ -1216,33 +1226,59 @@ class PetriView extends HTMLElement {
             el.style.left = `${newLeft}px`;
             el.style.top = `${newTop}px`;
             if (kind === 'place') {
+                // update model coords while dragging (keeps visual responsive)
+                const x = Math.round((newLeft + offset));
+                const y = Math.round((newTop + offset));
                 const p = this._model.places[id];
-                p.x = Math.round(newLeft + offset);
-                p.y = Math.round(newTop + offset);
+                if (p) {
+                    p.x = x;
+                    p.y = y;
+                }
             } else {
+                const x = Math.round((newLeft + offset));
+                const y = Math.round((newTop + offset));
                 const t = this._model.transitions[id];
-                t.x = Math.round(newLeft + offset);
-                t.y = Math.round(newTop + offset);
+                if (t) {
+                    t.x = x;
+                    t.y = y;
+                }
             }
             this._draw();
         };
 
         const up = (e) => {
-            el.releasePointerCapture(ev.pointerId);
+            try {
+                el.releasePointerCapture(ev.pointerId);
+            } catch {
+            }
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+
+            // restore cursor
+            try {
+                el.style.cursor = '';
+                document.body.style.cursor = '';
+            } catch { /* ignore */
+            }
+
             if (kind === 'place') {
+                // snap to grid and persist
+                const nx = this._snap(currentLeft + offset);
+                const ny = this._snap(currentTop + offset);
                 const p = this._model.places[id];
-                const centerX = Math.max(0, Math.round(currentLeft + offset));
-                const centerY = Math.max(0, Math.round(currentTop + offset));
-                p.x = this._snap(centerX);
-                p.y = this._snap(centerY);
+                if (p) {
+                    p.x = nx;
+                    p.y = ny;
+                }
             } else {
+                const nx = this._snap(currentLeft + offset);
+                const ny = this._snap(currentTop + offset);
                 const t = this._model.transitions[id];
-                const centerX = Math.max(0, Math.round(currentLeft + offset));
-                const centerY = Math.max(0, Math.round(currentTop + offset));
-                t.x = this._snap(centerX);
-                t.y = this._snap(centerY);
+                if (t) {
+                    t.x = nx;
+                    t.y = ny;
+                }
             }
             this._renderUI();
             this._syncLD();
@@ -1252,6 +1288,7 @@ class PetriView extends HTMLElement {
 
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
     }
 
     // ---------------- drawing ----------------
@@ -1809,9 +1846,6 @@ class PetriView extends HTMLElement {
 
         // panning pointer down/move/up
         this._root.addEventListener('pointerdown', (e) => {
-            if (this._mode === 'add-token') return;
-
-            // Determine if the pointer is on a non-interactive background area.
             // If so, allow left-button drag to pan even without modifiers.
             const interactiveSelector = '.pv-node, .pv-weight, .pv-menu, .pv-json-editor, .pv-scale-meter, .pv-json-textarea, .pv-tool, .pv-play';
             const clickedInteractive = !!e.target.closest && e.target.closest(interactiveSelector);
@@ -1820,13 +1854,30 @@ class PetriView extends HTMLElement {
             const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey || (leftButton && !clickedInteractive);
 
             if (isPan) {
-                this._panning = {x: e.clientX, y: e.clientY, tx: this._view.tx, ty: this._view.ty};
+                e.preventDefault();
+                // start panning
+                this._panning = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    tx: this._view.tx,
+                    ty: this._view.ty,
+                    pointerId: e.pointerId
+                };
+                // set grabbing cursor during pan (apply to root and body to ensure coverage)
                 try {
-                    this._root.setPointerCapture(e.pointerId);
-                } catch {
+                    this._root.style.cursor = 'grabbing';
+                    document.body.style.cursor = 'grabbing';
+                } catch { /* ignore */
+                }
+
+                // capture pointer on root so we receive move/up outside it
+                try {
+                    if (this._root.setPointerCapture) this._root.setPointerCapture(e.pointerId);
+                } catch { /* ignore */
                 }
             }
         });
+
         this._root.addEventListener('pointermove', (e) => {
             if (!this._panning) return;
             this._view.tx = this._panning.tx + (e.clientX - this._panning.x);
@@ -1834,12 +1885,161 @@ class PetriView extends HTMLElement {
             this._applyViewTransform();
             this._draw();
         });
-        this._root.addEventListener('pointerup', (e) => {
-            if (this._panning) {
-                this._panning = null;
-                this._root.releasePointerCapture?.(e.pointerId);
+
+        const endPan = (e) => {
+            if (!this._panning) return;
+            // release pointer capture if set
+            try {
+                if (this._root.releasePointerCapture) this._root.releasePointerCapture(this._panning.pointerId ?? e.pointerId);
+            } catch { /* ignore */
+            }
+
+            this._panning = null;
+            // restore cursor
+            try {
+                this._root.style.cursor = '';
+                document.body.style.cursor = '';
+            } catch { /* ignore */
+            }
+
+            // optionally push history or dispatch event if needed
+            // this._pushHistory();
+        };
+
+        this._root.addEventListener('pointerup', endPan);
+        this._root.addEventListener('pointercancel', endPan);
+    }
+
+    _wireRootEvents() {
+        // mouse tracking for arc draft
+        this._root.addEventListener('pointermove', (e) => {
+            const r = this._root.getBoundingClientRect();
+            this._mouse.x = Math.round(e.clientX - r.left);
+            this._mouse.y = Math.round(e.clientY - r.top);
+            if (this._arcDraft) this._draw();
+        });
+
+        // wheel zoom
+        this._root.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const r = this._root.getBoundingClientRect();
+            const mx = e.clientX - r.left, my = e.clientY - r.top;
+            const prev = this._view.scale;
+            const next = Math.max(this._minScale, Math.min(this._maxScale, prev * (e.deltaY < 0 ? 1.1 : 0.9)));
+            if (next === prev) return;
+            this._view.tx = mx - (mx - this._view.tx) * (next / prev);
+            this._view.ty = my - (my - this._view.ty) * (next / prev);
+            this._view.scale = next;
+            this._applyViewTransform();
+            this._draw();
+        }, {passive: false});
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === ' ') this._spaceDown = true;
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) this._redoAction(); else this._undoAction();
+            }
+
+            if (e.key && e.key.toLowerCase() === 'x') {
+                e.preventDefault();
+                this._setSimulation(!this._simRunning);
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this._setMode('select');
+                if (this._simRunning) {
+                    this._setSimulation(false);
+                    return;
+                }
+                if (this._arcDraft) {
+                    this._arcDraft = null;
+                    this._updateArcDraftHighlight();
+                    this._draw();
+                }
+                return;
+            }
+
+            const map = {
+                '1': 'select',
+                '2': 'add-place',
+                '3': 'add-transition',
+                '4': 'add-arc',
+                '5': 'add-token',
+                '6': 'delete'
+            };
+            if (map[e.key]) this._setMode(map[e.key]);
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === ' ') this._spaceDown = false;
+        });
+
+        // panning pointer down/move/up
+        this._root.addEventListener('pointerdown', (e) => {
+            // If so, allow left-button drag to pan even without modifiers.
+            const interactiveSelector = '.pv-node, .pv-weight, .pv-menu, .pv-json-editor, .pv-scale-meter, .pv-json-textarea, .pv-tool, .pv-play';
+            const clickedInteractive = !!e.target.closest && e.target.closest(interactiveSelector);
+            const leftButton = e.button === 0;
+
+            const isPan = this._spaceDown || e.button === 1 || e.altKey || e.ctrlKey || e.metaKey || (leftButton && !clickedInteractive);
+
+            if (isPan) {
+                e.preventDefault();
+                // start panning
+                this._panning = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    tx: this._view.tx,
+                    ty: this._view.ty,
+                    pointerId: e.pointerId
+                };
+                // set grabbing cursor during pan (apply to root and body to ensure coverage)
+                try {
+                    this._root.style.cursor = 'grabbing';
+                    document.body.style.cursor = 'grabbing';
+                } catch { /* ignore */
+                }
+
+                // capture pointer on root so we receive move/up outside it
+                try {
+                    if (this._root.setPointerCapture) this._root.setPointerCapture(e.pointerId);
+                } catch { /* ignore */
+                }
             }
         });
+
+        this._root.addEventListener('pointermove', (e) => {
+            if (!this._panning) return;
+            this._view.tx = this._panning.tx + (e.clientX - this._panning.x);
+            this._view.ty = this._panning.ty + (e.clientY - this._panning.y);
+            this._applyViewTransform();
+            this._draw();
+        });
+
+        const endPan = (e) => {
+            if (!this._panning) return;
+            // release pointer capture if set
+            try {
+                if (this._root.releasePointerCapture) this._root.releasePointerCapture(this._panning.pointerId ?? e.pointerId);
+            } catch { /* ignore */
+            }
+
+            this._panning = null;
+            // restore cursor
+            try {
+                this._root.style.cursor = '';
+                document.body.style.cursor = '';
+            } catch { /* ignore */
+            }
+
+            // optionally push history or dispatch event if needed
+            // this._pushHistory();
+        };
+
+        this._root.addEventListener('pointerup', endPan);
+        this._root.addEventListener('pointercancel', endPan);
     }
 
     _getStorageKey() {

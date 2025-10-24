@@ -7,9 +7,9 @@ build of app.pflow.dev - no wallet connector - minimal build/viewer
 WIP
 ---
 - [ ] NEW-STACK: Build viewer -> HTML -> Json+LD -> Canvas (interactive view) + SVG (static export)
-- [ ] fix issue added after the new arc preview - onclicks to fire transitions or make edits are broken
-- [ ] add - save permalink button + auto-update URL on edits
-- [ ] add id element w/ some consistent hash / IPFS signature
+- [ ] fix inhibitor usage in sims + add visualization for inhibitors
+- [ ] add - share/save permalink button + auto-update URL on edits
+- [ ] add id element w/ some consistent hash / IPFS signature - for verifiable models
 
 DONE
 ----
