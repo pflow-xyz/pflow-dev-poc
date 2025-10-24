@@ -118,7 +118,7 @@ class PetriView extends HTMLElement {
 
         const findBtn = makeBtn('🔍 Find', 'Open find ( Ace searchbox )');
         const dlBtn = makeBtn('📥 Download', 'Download current JSON');
-        const fsBtn = makeBtn('⤢ Full', 'Toggle fullscreen');
+        const fsBtn = makeBtn('🔳 Full ⤢', 'Toggle fullscreen');
         const closeBtn = makeBtn('❌ Close', 'Close editor'); // moved close into ace toolbar
         toolbar.appendChild(findBtn);
         toolbar.appendChild(dlBtn);
@@ -281,7 +281,7 @@ class PetriView extends HTMLElement {
             if (!container) return;
             const now = !!container._fsOn;
             applyCssFullscreen(container, !now);
-            fsBtn.textContent = (!now) ? '⤡ Exit' : '⤢ Full';
+            fsBtn.textContent = (!now) ? '🔳 Exit ⤢' : '🔳 Full ⤢';
             // allow layout to settle then resize/focus ace
             setTimeout(() => {
                 try {
