@@ -59,280 +59,300 @@ class PetriView extends HTMLElement {
         }
     }
 
-   _loadScript(src) {
-       return new Promise((resolve, reject) => {
-           if (window.ace) return resolve();
-           if (document.querySelector(`script[src="${src}"]`)) {
-               // already injected but maybe not ready
-               const check = () => window.ace ? resolve() : setTimeout(check, 50);
-               return check();
-           }
-           const s = document.createElement('script');
-           s.src = src;
-           s.onload = () => resolve();
-           s.onerror = (e) => reject(e);
-           document.head.appendChild(s);
-       });
-   }
+    _loadScript(src) {
+        return new Promise((resolve, reject) => {
+            if (window.ace) return resolve();
+            if (document.querySelector(`script[src="${src}"]`)) {
+                // already injected but maybe not ready
+                const check = () => window.ace ? resolve() : setTimeout(check, 50);
+                return check();
+            }
+            const s = document.createElement('script');
+            s.src = src;
+            s.onload = () => resolve();
+            s.onerror = (e) => reject(e);
+            document.head.appendChild(s);
+        });
+    }
 
-   // Updated _initAceEditor and _createJsonEditor in `public/petri-view.js`
+    // Updated _initAceEditor and _createJsonEditor in `public/petri-view.js`
 
-   async _initAceEditor() {
-       if (!this._jsonEditorTextarea || this._aceEditor) return;
-       const aceCdn = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.14/ace.js';
-       try {
-           await this._loadScript(aceCdn);
-       } catch {
-           return; // fail back to textarea if Ace can't load
-       }
+    async _initAceEditor() {
+        if (!this._jsonEditorTextarea || this._aceEditor) return;
+        const aceCdn = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.14/ace.js';
+        try {
+            await this._loadScript(aceCdn);
+        } catch {
+            return; // fail back to textarea if Ace can't load
+        }
 
-       // keep textarea for integration but hide it visually
-       this._jsonEditorTextarea.style.display = 'none';
+        // keep textarea for integration but hide it visually
+        this._jsonEditorTextarea.style.display = 'none';
 
-       // simple toolbar with Find + Download + Fullscreen (CSS-only) + Close
-       const toolbar = document.createElement('div');
-       toolbar.className = 'pv-ace-toolbar';
-       this._applyStyles(toolbar, {
-           display: 'flex',
-           gap: '6px',
-           padding: '6px 4px',
-           alignItems: 'center',
-           background: 'transparent'
-       });
+        // simple toolbar with Find + Download + Fullscreen (CSS-only) + Close
+        const toolbar = document.createElement('div');
+        toolbar.className = 'pv-ace-toolbar';
+        this._applyStyles(toolbar, {
+            display: 'flex',
+            gap: '6px',
+            padding: '6px 4px',
+            alignItems: 'center',
+            background: 'transparent'
+        });
 
-       const makeBtn = (txt, title) => {
-           const b = document.createElement('button');
-           b.type = 'button';
-           b.textContent = txt;
-           b.title = title;
-           this._applyStyles(b, {
-               padding: '6px 8px',
-               borderRadius: '6px',
-               border: '1px solid #ddd',
-               background: '#fff',
-               cursor: 'pointer',
-               fontSize: '12px'
-           });
-           return b;
-       };
+        const makeBtn = (txt, title) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = txt;
+            b.title = title;
+            this._applyStyles(b, {
+                padding: '6px 8px',
+                borderRadius: '6px',
+                border: '1px solid #ddd',
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: '12px'
+            });
+            return b;
+        };
 
-       const findBtn = makeBtn('🔍 Find', 'Open find ( Ace searchbox )');
-       const dlBtn = makeBtn('📥 Download', 'Download current JSON');
-       const fsBtn = makeBtn('⤢ Full', 'Toggle fullscreen');
-       const closeBtn = makeBtn('❌ Close', 'Close editor'); // moved close into ace toolbar
-       toolbar.appendChild(findBtn);
-       toolbar.appendChild(dlBtn);
-       toolbar.appendChild(fsBtn);
-       toolbar.appendChild(closeBtn);
+        const findBtn = makeBtn('🔍 Find', 'Open find ( Ace searchbox )');
+        const dlBtn = makeBtn('📥 Download', 'Download current JSON');
+        const fsBtn = makeBtn('⤢ Full', 'Toggle fullscreen');
+        const closeBtn = makeBtn('❌ Close', 'Close editor'); // moved close into ace toolbar
+        toolbar.appendChild(findBtn);
+        toolbar.appendChild(dlBtn);
+        toolbar.appendChild(fsBtn);
+        toolbar.appendChild(closeBtn);
 
-       // container for Ace
-       const editorWrapper = document.createElement('div');
-       editorWrapper.className = 'pv-ace-editor-wrapper';
-       this._applyStyles(editorWrapper, {
-           width: '100%',
-           flex: '1 1 auto',
-           minHeight: '120px',
-           boxSizing: 'border-box',
-           borderRadius: '6px',
-           border: '1px solid #ccc',
-           overflow: 'hidden',
-           display: 'flex',
-           flexDirection: 'column'
-       });
+        // container for Ace
+        const editorWrapper = document.createElement('div');
+        editorWrapper.className = 'pv-ace-editor-wrapper';
+        this._applyStyles(editorWrapper, {
+            width: '100%',
+            flex: '1 1 auto',
+            minHeight: '120px',
+            boxSizing: 'border-box',
+            borderRadius: '6px',
+            border: '1px solid #ccc',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+        });
 
-       const editorDiv = document.createElement('div');
-       editorDiv.className = 'pv-ace-editor';
-       this._applyStyles(editorDiv, {width: '100%', flex: '1 1 auto', minHeight: '120px'});
+        const editorDiv = document.createElement('div');
+        editorDiv.className = 'pv-ace-editor';
+        this._applyStyles(editorDiv, {width: '100%', flex: '1 1 auto', minHeight: '120px'});
 
-       editorWrapper.appendChild(toolbar);
-       editorWrapper.appendChild(editorDiv);
-       this._jsonEditorTextarea.parentNode.insertBefore(editorWrapper, this._jsonEditorTextarea.nextSibling);
+        editorWrapper.appendChild(toolbar);
+        editorWrapper.appendChild(editorDiv);
+        this._jsonEditorTextarea.parentNode.insertBefore(editorWrapper, this._jsonEditorTextarea.nextSibling);
 
-       // init ace
-       const editor = window.ace.edit(editorDiv);
-       editor.setTheme('ace/theme/textmate');
-       editor.session.setMode('ace/mode/json');
+        // init ace
+        const editor = window.ace.edit(editorDiv);
+        editor.setTheme('ace/theme/textmate');
+        editor.session.setMode('ace/mode/json');
 
-       // base options
-       const opts = {
-           fontSize: '13px',
-           showPrintMargin: false,
-           wrap: true,
-           useWorker: true
-       };
+        // base options
+        const opts = {
+            fontSize: '13px',
+            showPrintMargin: false,
+            wrap: true,
+            useWorker: true
+        };
 
-       // enable autocompletion/snippets only if language_tools is present
-       try {
-           if (window.ace && ace.require && ace.require('ace/ext/language_tools')) {
-               // only set these flags when the language_tools extension is available
-               opts.enableBasicAutocompletion = false;
-               opts.enableLiveAutocompletion = false;
-               opts.enableSnippets = false;
-           }
-       } catch {
-           // language_tools not available — skip those options to avoid warnings
-       }
+        // enable autocompletion/snippets only if language_tools is present
+        try {
+            if (window.ace && ace.require && ace.require('ace/ext/language_tools')) {
+                // only set these flags when the language_tools extension is available
+                opts.enableBasicAutocompletion = false;
+                opts.enableLiveAutocompletion = false;
+                opts.enableSnippets = false;
+            }
+        } catch {
+            // language_tools not available — skip those options to avoid warnings
+        }
 
-       editor.setOptions(opts);
+        editor.setOptions(opts);
 
-       // initial content
-       editor.session.setValue(this._jsonEditorTextarea.value || '');
+        // initial content
+        editor.session.setValue(this._jsonEditorTextarea.value || '');
 
-       // keep textarea in sync and reuse existing input logic
-       const applyChange = () => {
-           const txt = editor.session.getValue();
-           if (this._jsonEditorTextarea.value !== txt) this._jsonEditorTextarea.value = txt;
-           this._onJsonEditorInput(false);
-       };
-       editor.session.on('change', () => applyChange());
+        // keep textarea in sync and reuse existing input logic
+        const applyChange = () => {
+            const txt = editor.session.getValue();
+            if (this._jsonEditorTextarea.value !== txt) this._jsonEditorTextarea.value = txt;
+            this._onJsonEditorInput(false);
+        };
+        editor.session.on('change', () => applyChange());
 
-       // wire find button
-       findBtn.addEventListener('click', (e) => {
-           e.stopPropagation();
-           try { editor.execCommand('find'); } catch { alert('Find command unavailable'); }
-       });
+        // wire find button
+        findBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            try {
+                editor.execCommand('find');
+            } catch {
+                alert('Find command unavailable');
+            }
+        });
 
-       // wire download button: download current editor text as JSON file
-       dlBtn.addEventListener('click', (e) => {
-           e.stopPropagation();
-           try {
-               const txt = editor.session.getValue();
-               const blob = new Blob([txt], {type: 'application/json'});
-               const a = document.createElement('a');
-               const filename = (this.getAttribute('id') || 'petri-net') + '.json';
-               a.href = URL.createObjectURL(blob);
-               a.download = filename;
-               a.click();
-               URL.revokeObjectURL(a.href);
-           } catch (err) {
-               alert('Download failed: ' + (err && err.message ? err.message : String(err)));
-           }
-       });
+        // wire download button: download current editor text as JSON file
+        dlBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            try {
+                const txt = editor.session.getValue();
+                const blob = new Blob([txt], {type: 'application/json'});
+                const a = document.createElement('a');
+                const filename = (this.getAttribute('id') || 'petri-net') + '.json';
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            } catch (err) {
+                alert('Download failed: ' + (err && err.message ? err.message : String(err)));
+            }
+        });
 
-       // wire close button moved into ace toolbar
-       closeBtn.addEventListener('click', (e) => {
-           e.stopPropagation();
-           this._removeJsonEditor();
-       });
+        // wire close button moved into ace toolbar
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._removeJsonEditor();
+        });
 
-       // CSS-only fullscreen: apply fixed overlay to container (does NOT call Fullscreen API)
-       const applyCssFullscreen = (container, on) => {
-           if (!container) return;
-           if (on) {
-               // save previous inline styles
-               container._prevFull = {
-                   position: container.style.position || '',
-                   left: container.style.left || '',
-                   top: container.style.top || '',
-                   right: container.style.right || '',
-                   bottom: container.style.bottom || '',
-                   width: container.style.width || '',
-                   height: container.style.height || '',
-                   zIndex: container.style.zIndex || '',
-                   padding: container.style.padding || '',
-                   boxSizing: container.style.boxSizing || '',
-                   borderRadius: container.style.borderRadius || '',
-                   overflow: container.style.overflow || ''
-               };
-               // cover viewport without using Fullscreen API
-               Object.assign(container.style, {
-                   position: 'fixed',
-                   left: '0',
-                   top: '0',
-                   right: '0',
-                   bottom: '0',
-                   width: '100vw',
-                   height: '100vh',
-                   zIndex: 2147483647,
-                   padding: '12px',
-                   boxSizing: 'border-box',
-                   borderRadius: '0',
-                   overflow: 'auto'
-               });
-               // prevent body scroll behind overlay
-               try { document.documentElement.style.overflow = 'hidden'; document.body.style.overflow = 'hidden'; } catch {}
-               container._fsOn = true;
-           } else {
-               if (container._prevFull) {
-                   Object.assign(container.style, container._prevFull);
-                   container._prevFull = null;
-               }
-               try { document.documentElement.style.overflow = ''; document.body.style.overflow = ''; } catch {}
-               container._fsOn = false;
-           }
-       };
+        // CSS-only fullscreen: apply fixed overlay to container (does NOT call Fullscreen API)
+        const applyCssFullscreen = (container, on) => {
+            if (!container) return;
+            if (on) {
+                // save previous inline styles
+                container._prevFull = {
+                    position: container.style.position || '',
+                    left: container.style.left || '',
+                    top: container.style.top || '',
+                    right: container.style.right || '',
+                    bottom: container.style.bottom || '',
+                    width: container.style.width || '',
+                    height: container.style.height || '',
+                    zIndex: container.style.zIndex || '',
+                    padding: container.style.padding || '',
+                    boxSizing: container.style.boxSizing || '',
+                    borderRadius: container.style.borderRadius || '',
+                    overflow: container.style.overflow || ''
+                };
+                // cover viewport without using Fullscreen API
+                Object.assign(container.style, {
+                    position: 'fixed',
+                    left: '0',
+                    top: '0',
+                    right: '0',
+                    bottom: '0',
+                    width: '100vw',
+                    height: '100vh',
+                    zIndex: 2147483647,
+                    padding: '12px',
+                    boxSizing: 'border-box',
+                    borderRadius: '0',
+                    overflow: 'auto'
+                });
+                // prevent body scroll behind overlay
+                try {
+                    document.documentElement.style.overflow = 'hidden';
+                    document.body.style.overflow = 'hidden';
+                } catch {
+                }
+                container._fsOn = true;
+            } else {
+                if (container._prevFull) {
+                    Object.assign(container.style, container._prevFull);
+                    container._prevFull = null;
+                }
+                try {
+                    document.documentElement.style.overflow = '';
+                    document.body.style.overflow = '';
+                } catch {
+                }
+                container._fsOn = false;
+            }
+        };
 
-       // wire fullscreen button (CSS-only toggle)
-       fsBtn.addEventListener('click', (e) => {
-           e.stopPropagation();
-           const container = this._jsonEditor || editorWrapper;
-           if (!container) return;
-           const now = !!container._fsOn;
-           applyCssFullscreen(container, !now);
-           fsBtn.textContent = (!now) ? '⤡ Exit' : '⤢ Full';
-           // allow layout to settle then resize/focus ace
-           setTimeout(() => { try { editor.resize(); editor.focus(); } catch {} }, 80);
-       });
+        // wire fullscreen button (CSS-only toggle)
+        fsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const container = this._jsonEditor || editorWrapper;
+            if (!container) return;
+            const now = !!container._fsOn;
+            applyCssFullscreen(container, !now);
+            fsBtn.textContent = (!now) ? '⤡ Exit' : '⤢ Full';
+            // allow layout to settle then resize/focus ace
+            setTimeout(() => {
+                try {
+                    editor.resize();
+                    editor.focus();
+                } catch {
+                }
+            }, 80);
+        });
 
-       // store refs for cleanup
-       this._aceEditor = editor;
-       this._aceEditorContainer = editorWrapper;
-   }
+        // store refs for cleanup
+        this._aceEditor = editor;
+        this._aceEditorContainer = editorWrapper;
+    }
 
-   _createJsonEditor() {
-       if (this._jsonEditor) return;
-       const container = document.createElement('div');
-       container.className = 'pv-json-editor';
-       this._applyStyles(container, {
-           position: 'fixed',
-           left: '10px',
-           right: '10px',
-           bottom: '10px',
-           height: '45%',
-           minHeight: '160px',
-           maxHeight: '70%',
-           padding: '12px',
-           background: 'rgba(250,250,250,0.98)',
-           zIndex: 100,
-           boxSizing: 'border-box',
-           display: 'flex',
-           flexDirection: 'column',
-           gap: '8px',
-           overflow: 'auto',
-           borderRadius: '8px',
-           boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
-       });
+    _createJsonEditor() {
+        if (this._jsonEditor) return;
+        const container = document.createElement('div');
+        container.className = 'pv-json-editor';
+        this._applyStyles(container, {
+            position: 'fixed',
+            left: '10px',
+            right: '10px',
+            bottom: '10px',
+            height: '45%',
+            minHeight: '160px',
+            maxHeight: '70%',
+            padding: '12px',
+            background: 'rgba(250,250,250,0.98)',
+            zIndex: 100,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            overflow: 'auto',
+            borderRadius: '8px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+        });
 
-       // Removed the JSON Editor title and header close button per request.
+        // Removed the JSON Editor title and header close button per request.
 
-       const textarea = document.createElement('textarea');
-       textarea.className = 'pv-json-textarea';
-       this._applyStyles(textarea, {
-           width: '100%',
-           flex: '1 1 auto',
-           boxSizing: 'border-box',
-           resize: 'vertical',
-           fontFamily: 'monospace',
-           fontSize: '13px',
-           padding: '8px',
-           borderRadius: '6px',
-           border: '1px solid #ccc'
-       });
-       textarea.spellcheck = false;
-       container.appendChild(textarea);
+        const textarea = document.createElement('textarea');
+        textarea.className = 'pv-json-textarea';
+        this._applyStyles(textarea, {
+            width: '100%',
+            flex: '1 1 auto',
+            boxSizing: 'border-box',
+            resize: 'vertical',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            padding: '8px',
+            borderRadius: '6px',
+            border: '1px solid #ccc'
+        });
+        textarea.spellcheck = false;
+        container.appendChild(textarea);
 
-       const hostDoc = this.ownerDocument || document;
-       hostDoc.body.appendChild(container);
+        const hostDoc = this.ownerDocument || document;
+        hostDoc.body.appendChild(container);
 
-       this._jsonEditor = container;
-       this._jsonEditorTextarea = textarea;
-       this._editingJson = false;
-       this._jsonEditorTimer = null;
-       this._updateJsonEditor();
-       textarea.addEventListener('input', () => this._onJsonEditorInput());
-       textarea.addEventListener('blur', () => this._onJsonEditorInput(true));
-       this._initAceEditor().catch(() => {/* ignore */});
-   }
+        this._jsonEditor = container;
+        this._jsonEditorTextarea = textarea;
+        this._editingJson = false;
+        this._jsonEditorTimer = null;
+        this._updateJsonEditor();
+        textarea.addEventListener('input', () => this._onJsonEditorInput());
+        textarea.addEventListener('blur', () => this._onJsonEditorInput(true));
+        this._initAceEditor().catch(() => {/* ignore */
+        });
+    }
+
     // ---------------- lifecycle ----------------
     connectedCallback() {
         if (this._root) return;
@@ -640,27 +660,47 @@ class PetriView extends HTMLElement {
     }
 
     _enabled(tid, marks) {
+        marks = marks || this._marking();
+
+        // input arcs (place -> transition)
         const inArcs = this._inArcsOf(tid);
         for (const a of inArcs) {
             const fromPlace = this._model.places[a.source];
             if (!fromPlace) continue;
             const w = Number(a.weight?.[0] ?? 1);
             const tokens = marks[a.source] ?? 0;
+
             if (a.inhibitTransition) {
-                if (!(tokens < w)) return false;
-            } else {
-                if (tokens < w) return false;
+                // input inhibitor: transition disabled while source place tokens >= weight
+                if (tokens >= w) return false;
+                // inhibitor doesn't consume tokens
+                continue;
             }
+
+            // normal input arc must have enough tokens
+            if (tokens < w) return false;
         }
+
+        // output arcs (transition -> place)
         const outArcs = this._outArcsOf(tid);
         for (const a of outArcs) {
             const toPlace = this._model.places[a.target];
             if (!toPlace) continue;
             const w = Number(a.weight?.[0] ?? 1);
+            const tokens = marks[a.target] ?? 0;
+
+            if (a.inhibitTransition) {
+                // output inhibitor: transition disabled until target place tokens >= weight
+                if (tokens < w) return false;
+                // still fall through to capacity check for produced tokens
+            }
+
+            // output capacity must not overflow
             const cap = this._capacityOf(a.target);
             const cur = marks[a.target] ?? 0;
             if (cur + w > cap) return false;
         }
+
         return true;
     }
 
@@ -986,6 +1026,7 @@ class PetriView extends HTMLElement {
     }
 
     // ---------------- editing menu & modes ----------------
+
     _createMenu() {
         if (this._menu) this._menu.remove();
         this._menu = document.createElement('div');
@@ -1052,6 +1093,9 @@ class PetriView extends HTMLElement {
 
         this._root.appendChild(this._menu);
         this._root.addEventListener('click', (ev) => this._onRootClick(ev));
+
+        // Ensure the menu reflects the current mode (e.g. default 'select') right after creation
+        this._updateMenuActive();
     }
 
     _setMode(mode) {
@@ -1626,8 +1670,12 @@ class PetriView extends HTMLElement {
             if (this._aceEditor) {
                 try {
                     this._aceEditor.destroy();
-                } catch {}
-                try { this._aceEditorContainer.remove(); } catch {}
+                } catch {
+                }
+                try {
+                    this._aceEditorContainer.remove();
+                } catch {
+                }
                 this._aceEditor = null;
                 this._aceEditorContainer = null;
             }
@@ -1724,9 +1772,15 @@ class PetriView extends HTMLElement {
                 if (e.shiftKey) this._redoAction(); else this._undoAction();
             }
 
-            // If Esc is pressed, first stop the simulation (if running),
-            // otherwise fall back to cancelling arc draft.
+            if (e.key && e.key.toLowerCase() === 'x') {
+                e.preventDefault();
+                this._setSimulation(!this._simRunning);
+                return;
+            }
+
             if (e.key === 'Escape') {
+                e.preventDefault();
+                this._setMode('select');
                 if (this._simRunning) {
                     this._setSimulation(false);
                     return;
@@ -1736,6 +1790,7 @@ class PetriView extends HTMLElement {
                     this._updateArcDraftHighlight();
                     this._draw();
                 }
+                return;
             }
 
             const map = {
