@@ -1,4 +1,4 @@
-# pflow-app
+# pflow-dev-poc
 
 While pflow.xyz/editor is a great tool for creating and editing pflow files,
 it has evolved into a very complex react app.
@@ -6,7 +6,7 @@ it has evolved into a very complex react app.
 The intention here is to re-think the viewing and sharing experience,
 and extract some of the features from pflow.dev.
 
-*Status* : Alpha
+*Status* : Deprecated - replaced by pflow.xyz rebuild
 
 ## Goals
 
